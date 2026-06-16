@@ -1,0 +1,563 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Home App — Visual Shell</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;500;600;700&family=Fredoka:wght@500;600;700&display=swap" rel="stylesheet" />
+<script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+<style>
+  :root{
+    /* palette */
+    --sky:        #2BC2F2;
+    --sky-deep:   #14A6DA;
+    --sky-soft:   #E7F6FD;
+    --sky-tint:   #F1FAFE;
+    --ink:        #2C3D4E;
+    --ink-soft:   #5A6B7B;
+    --muted:      #9AAAB8;
+    --line:       #EAF1F6;
+    --card:       #FFFFFF;
+    --page:       #EAF3FA;
+    --green:      #28C26E;
+    --green-soft: #DAF6E7;
+    --gold:       #F7B500;
+    --gold-soft:  #FFF1CC;
+    /* radii */
+    --r-card: 26px;
+    --r-pill: 999px;
+    --r-input: 18px;
+    /* shadow */
+    --shadow-sm: 0 6px 18px rgba(43,109,150,.08);
+    --shadow-md: 0 14px 34px rgba(43,109,150,.12);
+    --shadow-lg: 0 26px 60px rgba(33,90,128,.18);
+    --font: 'Quicksand', system-ui, sans-serif;
+    --display: 'Fredoka', 'Quicksand', sans-serif;
+  }
+
+  *{ box-sizing:border-box; margin:0; padding:0; -webkit-font-smoothing:antialiased; }
+  body{
+    font-family:var(--font);
+    background:
+      radial-gradient(1200px 700px at 15% -5%, #F3FAFF 0%, transparent 60%),
+      radial-gradient(1100px 800px at 105% 110%, #EAF6FF 0%, transparent 55%),
+      #E2EDF4;
+    color:var(--ink);
+    min-height:100vh;
+    padding:56px 40px 80px;
+  }
+
+  /* ---------- studio chrome ---------- */
+  .studio-head{ max-width:1360px; margin:0 auto 48px; }
+  .studio-eyebrow{
+    font-size:13px; font-weight:700; letter-spacing:.16em; text-transform:uppercase;
+    color:var(--sky-deep); display:flex; align-items:center; gap:10px; margin-bottom:14px;
+  }
+  .studio-eyebrow::before{ content:""; width:26px; height:26px; border-radius:9px;
+    background:linear-gradient(150deg,var(--sky),var(--sky-deep)); box-shadow:var(--shadow-sm); }
+  .studio-title{ font-family:var(--display); font-weight:700; font-size:40px; letter-spacing:-.01em; color:var(--ink); }
+  .studio-sub{ margin-top:10px; font-size:16px; font-weight:500; color:var(--ink-soft); max-width:620px; line-height:1.5; }
+
+  .stage{
+    max-width:1360px; margin:0 auto; display:flex; flex-wrap:wrap; gap:56px 64px;
+    justify-content:center; align-items:flex-start;
+  }
+  .frame-wrap{ display:flex; flex-direction:column; align-items:center; gap:20px; }
+  .frame-label{ font-size:14px; font-weight:700; color:var(--ink-soft); display:flex; align-items:center; gap:9px; }
+  .frame-label .dot{ width:8px; height:8px; border-radius:50%; background:var(--sky); }
+
+  /* ---------- iOS device ---------- */
+  .phone{
+    position:relative; width:390px; height:844px; border-radius:56px;
+    background:#0B1015; padding:13px;
+    box-shadow:var(--shadow-lg), inset 0 0 0 2px #2a3138;
+  }
+  .screen{
+    position:relative; width:100%; height:100%; border-radius:44px; overflow:hidden;
+    background:var(--page); display:flex; flex-direction:column;
+  }
+  /* dynamic island */
+  .island{
+    position:absolute; top:12px; left:50%; transform:translateX(-50%);
+    width:118px; height:34px; background:#05080B; border-radius:20px; z-index:60;
+  }
+  /* status bar */
+  .statusbar{
+    position:relative; z-index:50; height:54px; flex:0 0 54px;
+    display:flex; align-items:center; justify-content:space-between;
+    padding:0 30px 0 34px; font-weight:700; font-size:16px; color:var(--ink);
+  }
+  .statusbar.on-sky{ color:#fff; }
+  .sb-right{ display:flex; align-items:center; gap:7px; }
+  .sb-right svg{ width:18px; height:18px; }
+  .battery{ width:26px; height:13px; border:2px solid currentColor; border-radius:4px; position:relative; padding:1.5px; }
+  .battery::after{ content:""; position:absolute; right:-4px; top:50%; transform:translateY(-50%); width:2px; height:5px; background:currentColor; border-radius:0 2px 2px 0; }
+  .battery i{ display:block; height:100%; width:82%; background:currentColor; border-radius:1.5px; }
+
+  .home-indicator{
+    position:absolute; bottom:9px; left:50%; transform:translateX(-50%);
+    width:135px; height:5px; border-radius:3px; background:rgba(20,40,55,.32); z-index:70;
+  }
+  .home-indicator.light{ background:rgba(255,255,255,.7); }
+
+  /* generic scroll body */
+  .app-body{ flex:1 1 auto; overflow:hidden; position:relative; display:flex; flex-direction:column; }
+
+  /* ============================================================= SETUP */
+  .setup{
+    flex:1; display:flex; flex-direction:column; padding:8px 30px 40px;
+    background:
+      radial-gradient(520px 360px at 50% -8%, #DFF4FE 0%, transparent 70%),
+      linear-gradient(180deg, #F4FBFF 0%, #EAF4FB 100%);
+  }
+  .setup-top{ flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:26px; }
+  .logo-mark{
+    width:108px; height:108px; border-radius:30px;
+    background:linear-gradient(155deg,#46CEF6 0%, #1AA6DD 100%);
+    display:flex; align-items:center; justify-content:center;
+    box-shadow:0 20px 38px rgba(28,168,219,.42), inset 0 2px 0 rgba(255,255,255,.45);
+    position:relative;
+  }
+  .logo-mark svg{ width:54px; height:54px; color:#fff; }
+  .logo-mark .spark{ position:absolute; top:-7px; right:-7px; width:30px; height:30px; border-radius:12px;
+    background:#fff; display:flex; align-items:center; justify-content:center; box-shadow:var(--shadow-sm); }
+  .logo-mark .spark svg{ width:17px; height:17px; color:var(--gold); }
+  .wordmark{ font-family:var(--display); font-weight:700; font-size:38px; letter-spacing:-.01em; color:var(--ink); }
+  .wordmark span{ color:var(--sky); }
+  .setup-tag{ margin-top:-16px; font-size:16px; font-weight:600; color:var(--ink-soft); text-align:center; line-height:1.5; max-width:250px; }
+
+  .setup-form{ display:flex; flex-direction:column; gap:16px; padding-bottom:6px; }
+  .field-label{ font-size:13.5px; font-weight:700; color:var(--ink-soft); margin:0 0 8px 6px; }
+  .field{ position:relative; }
+  .field .ic{ position:absolute; left:18px; top:50%; transform:translateY(-50%); width:21px; height:21px; color:var(--sky); }
+  .field input{
+    width:100%; height:60px; border:1.5px solid var(--line); border-radius:var(--r-input);
+    background:#fff; padding:0 18px 0 50px; font-family:var(--font); font-weight:600; font-size:16.5px; color:var(--ink);
+    box-shadow:var(--shadow-sm); outline:none;
+  }
+  .field input::placeholder{ color:var(--muted); font-weight:500; }
+  .field.focused input{ border-color:var(--sky); box-shadow:0 0 0 4px var(--sky-soft); }
+
+  .btn-primary{
+    height:62px; border:none; border-radius:var(--r-pill); font-family:var(--font);
+    font-weight:700; font-size:18px; color:#fff; cursor:pointer; margin-top:8px;
+    background:linear-gradient(150deg,#3DC9F5 0%, #16A6DC 100%);
+    box-shadow:0 16px 30px rgba(25,166,221,.4), inset 0 2px 0 rgba(255,255,255,.4);
+    display:flex; align-items:center; justify-content:center; gap:10px;
+  }
+  .btn-primary svg{ width:20px; height:20px; }
+  .setup-foot{ text-align:center; margin-top:18px; font-size:14px; font-weight:600; color:var(--muted); }
+  .setup-foot b{ color:var(--sky-deep); }
+
+  /* ============================================================= HOME */
+  .home-header{
+    flex:0 0 auto; padding:14px 24px 30px;
+    background:linear-gradient(160deg,#36C8F4 0%, #16AADD 100%);
+    border-radius:0 0 34px 34px; position:relative; color:#fff;
+    box-shadow:0 16px 30px rgba(22,168,221,.26);
+  }
+  .hh-top{ display:flex; align-items:center; justify-content:space-between; }
+  .hh-hello{ font-size:15px; font-weight:600; color:rgba(255,255,255,.86); line-height:1; white-space:nowrap; }
+  .hh-name{ font-family:var(--display); font-weight:700; font-size:27px; line-height:1.05; margin-top:5px; }
+  .hh-right{ display:flex; align-items:center; gap:10px; }
+  .coin-pill{ display:flex; align-items:center; gap:7px; background:#fff; border-radius:var(--r-pill); padding:7px 13px 7px 9px;
+    font-weight:700; font-size:15px; color:var(--ink); box-shadow:var(--shadow-sm); }
+  .coin{ width:21px; height:21px; border-radius:50%; background:linear-gradient(150deg,#FFD24A,#F39B00);
+    display:flex; align-items:center; justify-content:center; box-shadow:inset 0 -2px 0 rgba(180,110,0,.3); }
+  .coin svg{ width:12px; height:12px; color:#fff; }
+  .avatar{ width:42px; height:42px; border-radius:50%; background:rgba(255,255,255,.22);
+    border:2px solid rgba(255,255,255,.6); display:flex; align-items:center; justify-content:center; }
+  .avatar svg{ width:22px; height:22px; color:#fff; }
+
+  .progress-card{
+    margin-top:22px; background:rgba(255,255,255,.16); border:1px solid rgba(255,255,255,.28);
+    border-radius:24px; padding:18px 20px; display:flex; align-items:center; gap:20px;
+    backdrop-filter:blur(4px);
+  }
+  .ring{ position:relative; width:78px; height:78px; flex:0 0 78px; }
+  .ring svg{ transform:rotate(-90deg); }
+  .ring .pct{ position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; }
+  .ring .pct b{ font-family:var(--display); font-weight:700; font-size:21px; line-height:1; color:#fff; }
+  .ring .pct span{ font-size:10px; font-weight:700; color:rgba(255,255,255,.8); letter-spacing:.04em; }
+  .prog-meta{ flex:1; }
+  .prog-meta .wk{ font-size:13px; font-weight:700; letter-spacing:.04em; color:rgba(255,255,255,.78); text-transform:uppercase; }
+  .prog-meta .big{ font-family:var(--display); font-weight:600; font-size:19px; margin:3px 0 2px; }
+  .prog-meta .sub{ font-size:13.5px; font-weight:600; color:rgba(255,255,255,.85); }
+  .prog-meta .sub b{ color:#fff; }
+
+  .home-content{ flex:1; overflow:hidden; padding:22px 22px 0; position:relative; }
+  .section-row{ display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; }
+  .section-title{ font-family:var(--display); font-weight:600; font-size:20px; color:var(--ink); }
+  .sort-btn{ display:flex; align-items:center; gap:6px; height:38px; padding:0 14px; border-radius:var(--r-pill);
+    border:1.5px solid var(--line); background:#fff; font-weight:700; font-size:13.5px; color:var(--sky-deep); box-shadow:var(--shadow-sm); }
+  .sort-btn svg{ width:15px; height:15px; }
+
+  /* task card */
+  .task-card{
+    background:var(--card); border-radius:var(--r-card); padding:18px 18px 16px;
+    box-shadow:var(--shadow-md); margin-bottom:16px; position:relative; overflow:hidden;
+  }
+  .task-card::before{ content:""; position:absolute; left:0; top:18px; bottom:18px; width:5px; border-radius:0 4px 4px 0; background:var(--green); }
+  .tc-top{ display:flex; align-items:flex-start; gap:14px; }
+  .tc-icon{ width:48px; height:48px; border-radius:15px; flex:0 0 48px; display:flex; align-items:center; justify-content:center;
+    background:var(--sky-soft); color:var(--sky-deep); }
+  .tc-icon svg{ width:24px; height:24px; }
+  .tc-main{ flex:1; min-width:0; }
+  .tc-title{ font-family:var(--display); font-weight:600; font-size:18.5px; color:var(--ink); }
+  .tc-sub{ font-size:13.5px; font-weight:600; color:var(--sky-deep); margin-top:3px; }
+  .tc-meta{ font-size:13px; font-weight:600; color:var(--muted); margin-top:1px; }
+  .tc-check{ width:30px; height:30px; border-radius:10px; border:2px solid var(--line); flex:0 0 30px; display:flex; align-items:center; justify-content:center; color:transparent; }
+  .tc-check.done{ background:var(--green); border-color:var(--green); color:#fff; }
+  .tc-check svg{ width:18px; height:18px; }
+  .tc-bottom{ display:flex; align-items:center; gap:14px; margin-top:16px; }
+  .tc-bar{ flex:1; height:11px; border-radius:6px; background:var(--green-soft); overflow:hidden; }
+  .tc-bar i{ display:block; height:100%; width:84%; border-radius:6px; background:linear-gradient(90deg,#34D17E,#19B25E); }
+  .tc-status{ font-size:13.5px; font-weight:700; color:var(--green); white-space:nowrap; }
+  .tc-effort{ display:flex; gap:5px; }
+  .tc-effort span{ width:9px; height:9px; border-radius:50%; background:var(--line); }
+  .tc-effort span.on{ background:var(--sky); }
+
+  /* second card variant (amber) */
+  .task-card.amber::before{ background:var(--gold); }
+  .task-card.amber .tc-icon{ background:#FFF3D6; color:#C98A00; }
+  .task-card.amber .tc-bar{ background:var(--gold-soft); }
+  .task-card.amber .tc-bar i{ width:46%; background:linear-gradient(90deg,#FFC83D,#F2A100); }
+  .task-card.amber .tc-status{ color:#D79400; }
+  .task-card.amber::before{ background:var(--gold); }
+
+  /* FAB */
+  .fab{ position:absolute; right:20px; bottom:18px; width:62px; height:62px; border-radius:22px;
+    background:linear-gradient(150deg,#3DC9F5,#16A6DC); display:flex; align-items:center; justify-content:center;
+    box-shadow:0 16px 30px rgba(25,166,221,.46), inset 0 2px 0 rgba(255,255,255,.4); z-index:30; }
+  .fab svg{ width:28px; height:28px; color:#fff; }
+
+  /* bottom nav */
+  .bottom-nav{
+    flex:0 0 auto; height:92px; background:#fff; border-top:1px solid var(--line);
+    display:grid; grid-template-columns:repeat(6,1fr); align-items:start; padding:12px 6px 0;
+    box-shadow:0 -10px 30px rgba(43,109,150,.06);
+  }
+  .nav-item{ display:flex; flex-direction:column; align-items:center; gap:5px; color:var(--muted); }
+  .nav-item .nav-ic{ width:38px; height:38px; border-radius:13px; display:flex; align-items:center; justify-content:center; }
+  .nav-item svg{ width:23px; height:23px; }
+  .nav-item .nav-lbl{ font-size:10.5px; font-weight:700; letter-spacing:.01em; }
+  .nav-item.active{ color:var(--sky-deep); }
+  .nav-item.active .nav-ic{ background:var(--sky-soft); }
+
+  /* ============================================================= BOTTOM SHEET */
+  .sheet-dim{ position:absolute; inset:0; background:rgba(20,46,66,.42); z-index:80; backdrop-filter:blur(1.5px); }
+  .sheet{
+    position:absolute; left:0; right:0; bottom:0; z-index:90; background:#fff;
+    border-radius:30px 30px 0 0; padding:14px 24px 30px;
+    box-shadow:0 -20px 50px rgba(20,46,66,.22); display:flex; flex-direction:column; gap:18px;
+  }
+  .grabber{ width:44px; height:5px; border-radius:3px; background:#DBE5EC; margin:2px auto 4px; }
+  .sheet-head{ display:flex; align-items:flex-start; justify-content:space-between; gap:14px; }
+  .sheet-title{ font-family:var(--display); font-weight:600; font-size:23px; color:var(--ink); white-space:nowrap; }
+  .sheet-title small{ display:block; font-family:var(--font); font-weight:600; font-size:13.5px; color:var(--muted); margin-top:3px; }
+  .sheet-close{ width:36px; height:36px; border-radius:12px; background:var(--sky-tint); display:flex; align-items:center; justify-content:center; color:var(--ink-soft); flex:0 0 36px; }
+  .sheet-close svg{ width:19px; height:19px; }
+
+  .sheet .field input{ height:56px; }
+  .seg-label{ font-size:13.5px; font-weight:700; color:var(--ink-soft); margin:2px 0 10px 4px; }
+  .chips{ display:flex; gap:10px; }
+  .chip{ flex:1; height:46px; border-radius:14px; border:1.5px solid var(--line); background:#fff;
+    display:flex; align-items:center; justify-content:center; font-weight:700; font-size:14px; color:var(--ink-soft); }
+  .chip.sel{ background:var(--sky-soft); border-color:var(--sky); color:var(--sky-deep); }
+
+  .effort-row{ display:flex; align-items:center; justify-content:space-between; padding:2px 4px; }
+  .effort-row .lbl{ font-size:13.5px; font-weight:700; color:var(--ink-soft); }
+  .effort-dots{ display:flex; gap:9px; align-items:center; }
+  .effort-dots span{ width:16px; height:16px; border-radius:50%; background:var(--line); }
+  .effort-dots span.on{ background:var(--sky); box-shadow:0 4px 10px rgba(43,194,242,.4); }
+
+  .annot{ position:absolute; font-size:12.5px; font-weight:600; color:var(--ink-soft); display:flex; align-items:center; gap:8px; }
+  @media (max-width:520px){ body{ padding:30px 12px; } .phone{ transform:scale(.85); transform-origin:top center; } }
+</style>
+</head>
+<body>
+  <header class="studio-head">
+    <div class="studio-eyebrow">Visual shell · v1</div>
+    <h1 class="studio-title">Home App — UI shell</h1>
+    <p class="studio-sub">Static screens for the home-tasks app: onboarding, the home dashboard with progress ring + bottom nav, the sample task card, and an add-task bottom sheet. Soft sky-blue, rounded, app-like. No logic wired up yet.</p>
+  </header>
+
+  <main class="stage">
+
+    <!-- ====================================================== SETUP -->
+    <div class="frame-wrap">
+      <div class="frame-label"><span class="dot"></span>Setup</div>
+      <div class="phone">
+        <div class="island"></div>
+        <div class="screen">
+          <div class="statusbar">
+            <span>9:41</span>
+            <span class="sb-right">
+              <svg viewBox="0 0 24 24" fill="currentColor"><path d="M2 17a1 1 0 0 1 1-1h1a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1zm5-3a1 1 0 0 1 1-1h1a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H8a1 1 0 0 1-1-1zm5-3a1 1 0 0 1 1-1h1a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1h-1a1 1 0 0 1-1-1zm5-4a1 1 0 0 1 1-1h1a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-1a1 1 0 0 1-1-1z"/></svg>
+              <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 4.5C7 4.5 2.7 7 .5 10.5a1 1 0 0 0 .2 1.3l11 8.7a.5.5 0 0 0 .6 0l11-8.7a1 1 0 0 0 .2-1.3C21.3 7 17 4.5 12 4.5z" opacity=".9"/></svg>
+              <span class="battery"><i></i></span>
+            </span>
+          </div>
+
+          <div class="setup">
+            <div class="setup-top">
+              <div class="logo-mark">
+                <i data-lucide="house-plus"></i>
+                <span class="spark"><i data-lucide="sparkles"></i></span>
+              </div>
+              <div style="text-align:center">
+                <div class="wordmark">Tidy<span>Nest</span></div>
+              </div>
+              <p class="setup-tag">Share the load. Keep your place humming together.</p>
+            </div>
+
+            <div class="setup-form">
+              <div>
+                <p class="field-label">Your name</p>
+                <div class="field focused">
+                  <i data-lucide="user" class="ic"></i>
+                  <input type="text" value="Maya" />
+                </div>
+              </div>
+              <div>
+                <p class="field-label">Partner's name</p>
+                <div class="field">
+                  <i data-lucide="users" class="ic"></i>
+                  <input type="text" placeholder="e.g. Sam" />
+                </div>
+              </div>
+              <button class="btn-primary">Get started <i data-lucide="arrow-right"></i></button>
+              <p class="setup-foot">Already set up? <b>Restore household</b></p>
+            </div>
+          </div>
+          <div class="home-indicator"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ====================================================== HOME -->
+    <div class="frame-wrap">
+      <div class="frame-label"><span class="dot"></span>Home dashboard</div>
+      <div class="phone">
+        <div class="island"></div>
+        <div class="screen">
+          <div class="statusbar on-sky">
+            <span>9:41</span>
+            <span class="sb-right">
+              <svg viewBox="0 0 24 24" fill="currentColor"><path d="M2 17a1 1 0 0 1 1-1h1a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1zm5-3a1 1 0 0 1 1-1h1a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H8a1 1 0 0 1-1-1zm5-3a1 1 0 0 1 1-1h1a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1h-1a1 1 0 0 1-1-1zm5-4a1 1 0 0 1 1-1h1a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-1a1 1 0 0 1-1-1z"/></svg>
+              <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 4.5C7 4.5 2.7 7 .5 10.5a1 1 0 0 0 .2 1.3l11 8.7a.5.5 0 0 0 .6 0l11-8.7a1 1 0 0 0 .2-1.3C21.3 7 17 4.5 12 4.5z" opacity=".9"/></svg>
+              <span class="battery"><i></i></span>
+            </span>
+          </div>
+
+          <div class="app-body">
+            <!-- header -->
+            <div class="home-header">
+              <div class="hh-top">
+                <div>
+                  <div class="hh-hello">Good morning,</div>
+                  <div class="hh-name">Maya</div>
+                </div>
+                <div class="hh-right">
+                  <div class="coin-pill"><span class="coin"><i data-lucide="crown"></i></span>20</div>
+                  <div class="avatar"><i data-lucide="user-round"></i></div>
+                </div>
+              </div>
+
+              <div class="progress-card">
+                <div class="ring">
+                  <svg width="78" height="78" viewBox="0 0 78 78">
+                    <circle cx="39" cy="39" r="33" fill="none" stroke="rgba(255,255,255,.28)" stroke-width="9"></circle>
+                    <circle cx="39" cy="39" r="33" fill="none" stroke="#fff" stroke-width="9" stroke-linecap="round"
+                      stroke-dasharray="207.3" stroke-dashoffset="66.3"></circle>
+                  </svg>
+                  <div class="pct"><b>68%</b><span>DONE</span></div>
+                </div>
+                <div class="prog-meta">
+                  <div class="wk">This week</div>
+                  <div class="big">Jun 2 — 8</div>
+                  <div class="sub"><b>4 of 6</b> tasks done · nice pace</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- content -->
+            <div class="home-content">
+              <div class="section-row">
+                <div class="section-title">Today</div>
+                <button class="sort-btn">Sort <i data-lucide="chevron-down"></i></button>
+              </div>
+
+              <div class="task-card">
+                <div class="tc-top">
+                  <div class="tc-icon"><i data-lucide="cooking-pot"></i></div>
+                  <div class="tc-main">
+                    <div class="tc-title">Clean the kitchen</div>
+                    <div class="tc-sub">Last done · Sun, 1 Jun</div>
+                    <div class="tc-meta">Every week · Maya</div>
+                  </div>
+                  <div class="tc-check done"><i data-lucide="check"></i></div>
+                </div>
+                <div class="tc-bottom">
+                  <div class="tc-bar"><i></i></div>
+                  <div class="tc-status">Shiny clean</div>
+                </div>
+              </div>
+
+              <div class="task-card amber">
+                <div class="tc-top">
+                  <div class="tc-icon"><i data-lucide="washing-machine"></i></div>
+                  <div class="tc-main">
+                    <div class="tc-title">Laundry &amp; sheets</div>
+                    <div class="tc-sub">Last done · Wed, 28 May</div>
+                    <div class="tc-meta">Every 2 weeks · Sam</div>
+                  </div>
+                  <div class="tc-check"><i data-lucide="check"></i></div>
+                </div>
+                <div class="tc-bottom">
+                  <div class="tc-bar"><i></i></div>
+                  <div class="tc-status">Getting there</div>
+                  <div class="tc-effort"><span class="on"></span><span class="on"></span><span></span></div>
+                </div>
+              </div>
+
+              <div class="fab"><i data-lucide="plus"></i></div>
+            </div>
+
+            <!-- bottom nav -->
+            <nav class="bottom-nav">
+              <div class="nav-item active">
+                <div class="nav-ic"><i data-lucide="list-checks"></i></div><div class="nav-lbl">Tasks</div>
+              </div>
+              <div class="nav-item">
+                <div class="nav-ic"><i data-lucide="sparkles"></i></div><div class="nav-lbl">Clean</div>
+              </div>
+              <div class="nav-item">
+                <div class="nav-ic"><i data-lucide="history"></i></div><div class="nav-lbl">History</div>
+              </div>
+              <div class="nav-item">
+                <div class="nav-ic"><i data-lucide="calendar-days"></i></div><div class="nav-lbl">Calendar</div>
+              </div>
+              <div class="nav-item">
+                <div class="nav-ic"><i data-lucide="heart"></i></div><div class="nav-lbl">Dates</div>
+              </div>
+              <div class="nav-item">
+                <div class="nav-ic"><i data-lucide="settings"></i></div><div class="nav-lbl">Settings</div>
+              </div>
+            </nav>
+          </div>
+          <div class="home-indicator"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ====================================================== BOTTOM SHEET -->
+    <div class="frame-wrap">
+      <div class="frame-label"><span class="dot"></span>Add-task bottom sheet</div>
+      <div class="phone">
+        <div class="island"></div>
+        <div class="screen">
+          <div class="statusbar on-sky">
+            <span>9:41</span>
+            <span class="sb-right">
+              <svg viewBox="0 0 24 24" fill="currentColor"><path d="M2 17a1 1 0 0 1 1-1h1a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1zm5-3a1 1 0 0 1 1-1h1a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H8a1 1 0 0 1-1-1zm5-3a1 1 0 0 1 1-1h1a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1h-1a1 1 0 0 1-1-1zm5-4a1 1 0 0 1 1-1h1a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-1a1 1 0 0 1-1-1z"/></svg>
+              <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 4.5C7 4.5 2.7 7 .5 10.5a1 1 0 0 0 .2 1.3l11 8.7a.5.5 0 0 0 .6 0l11-8.7a1 1 0 0 0 .2-1.3C21.3 7 17 4.5 12 4.5z" opacity=".9"/></svg>
+              <span class="battery"><i></i></span>
+            </span>
+          </div>
+
+          <div class="app-body">
+            <!-- dimmed header behind -->
+            <div class="home-header">
+              <div class="hh-top">
+                <div>
+                  <div class="hh-hello">Good morning,</div>
+                  <div class="hh-name">Maya</div>
+                </div>
+                <div class="hh-right">
+                  <div class="coin-pill"><span class="coin"><i data-lucide="crown"></i></span>20</div>
+                  <div class="avatar"><i data-lucide="user-round"></i></div>
+                </div>
+              </div>
+              <div class="progress-card">
+                <div class="ring">
+                  <svg width="78" height="78" viewBox="0 0 78 78">
+                    <circle cx="39" cy="39" r="33" fill="none" stroke="rgba(255,255,255,.28)" stroke-width="9"></circle>
+                    <circle cx="39" cy="39" r="33" fill="none" stroke="#fff" stroke-width="9" stroke-linecap="round"
+                      stroke-dasharray="207.3" stroke-dashoffset="66.3"></circle>
+                  </svg>
+                  <div class="pct"><b>68%</b><span>DONE</span></div>
+                </div>
+                <div class="prog-meta">
+                  <div class="wk">This week</div>
+                  <div class="big">Jun 2 — 8</div>
+                  <div class="sub"><b>4 of 6</b> tasks done · nice pace</div>
+                </div>
+              </div>
+            </div>
+            <div class="home-content">
+              <div class="section-row">
+                <div class="section-title">Today</div>
+                <button class="sort-btn">Sort <i data-lucide="chevron-down"></i></button>
+              </div>
+              <div class="task-card">
+                <div class="tc-top">
+                  <div class="tc-icon"><i data-lucide="cooking-pot"></i></div>
+                  <div class="tc-main">
+                    <div class="tc-title">Clean the kitchen</div>
+                    <div class="tc-sub">Last done · Sun, 1 Jun</div>
+                  </div>
+                  <div class="tc-check done"><i data-lucide="check"></i></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- sheet overlay -->
+            <div class="sheet-dim"></div>
+            <div class="sheet">
+              <div class="grabber"></div>
+              <div class="sheet-head">
+                <div class="sheet-title">New task<small>Bathroom</small></div>
+                <div class="sheet-close"><i data-lucide="x"></i></div>
+              </div>
+
+              <div class="field">
+                <i data-lucide="pencil" class="ic"></i>
+                <input type="text" value="Clean the mirror" />
+              </div>
+
+              <div>
+                <div class="seg-label">How often?</div>
+                <div class="chips">
+                  <div class="chip">Daily</div>
+                  <div class="chip sel">Weekly</div>
+                  <div class="chip">Monthly</div>
+                </div>
+              </div>
+
+              <div>
+                <div class="seg-label">Effort</div>
+                <div class="effort-row">
+                  <span class="lbl">Quick</span>
+                  <div class="effort-dots"><span class="on"></span><span class="on"></span><span></span></div>
+                  <span class="lbl">A chore</span>
+                </div>
+              </div>
+
+              <button class="btn-primary">Create task <i data-lucide="check"></i></button>
+            </div>
+          </div>
+          <div class="home-indicator light"></div>
+        </div>
+      </div>
+    </div>
+
+  </main>
+
+  <script>
+    lucide.createIcons();
+  </script>
+</body>
+</html>
