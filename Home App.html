@@ -153,14 +153,14 @@
 
   /* ============================================================= HOME */
   .home-header{
-    flex:0 0 auto; padding:14px 24px 30px;
+    flex:0 0 auto; padding:12px 24px 14px;
     background:linear-gradient(160deg,#36C8F4 0%, #16AADD 100%);
     border-radius:0 0 34px 34px; position:relative; color:#fff;
     box-shadow:0 16px 30px rgba(22,168,221,.26);
   }
   .hh-top{ display:flex; align-items:center; justify-content:space-between; }
   .hh-hello{ font-size:15px; font-weight:600; color:rgba(255,255,255,.86); line-height:1; white-space:nowrap; }
-  .hh-name{ font-family:var(--display); font-weight:700; font-size:27px; line-height:1.05; margin-top:5px; }
+  .hh-name{ font-family:var(--display); font-weight:700; font-size:27px; line-height:1.05; margin-top:3px; }
   .hh-right{ display:flex; align-items:center; gap:10px; }
   .coin-pill{ display:flex; align-items:center; gap:7px; background:#fff; border-radius:var(--r-pill); padding:7px 13px 7px 9px;
     font-weight:700; font-size:15px; color:var(--ink); box-shadow:var(--shadow-sm); }
@@ -172,23 +172,25 @@
   .avatar svg{ width:22px; height:22px; color:#fff; }
 
   .progress-card{
-    margin-top:22px; background:rgba(255,255,255,.16); border:1px solid rgba(255,255,255,.28);
-    border-radius:24px; padding:18px 20px; display:flex; align-items:center; gap:20px;
-    backdrop-filter:blur(4px);
+    position:relative; margin-top:12px; padding:2px 4px; display:flex; align-items:center; gap:18px;
   }
   .ring{ position:relative; width:78px; height:78px; flex:0 0 78px; }
   .ring svg{ transform:rotate(-90deg); }
   .ring .pct{ position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; }
   .ring .pct b{ font-family:var(--display); font-weight:700; font-size:21px; line-height:1; color:#fff; }
-  .ring .pct span{ font-size:10px; font-weight:700; color:rgba(255,255,255,.8); letter-spacing:.04em; }
+  .ring .pct span{ font-size:10px; font-weight:700; color:rgba(255,255,255,.82); letter-spacing:.04em; }
   .prog-meta{ flex:1; }
-  .prog-meta .wk{ font-size:13px; font-weight:700; letter-spacing:.04em; color:rgba(255,255,255,.78); text-transform:uppercase; }
-  .prog-meta .big{ font-family:var(--display); font-weight:600; font-size:19px; margin:3px 0 2px; }
-  .prog-meta .sub{ font-size:13.5px; font-weight:600; color:rgba(255,255,255,.85); }
+  .prog-meta .wk{ font-size:13px; font-weight:700; letter-spacing:.04em; color:rgba(255,255,255,.85); text-transform:uppercase; }
+  .prog-meta .big{ font-family:var(--display); font-weight:600; font-size:19px; margin:2px 0 1px; color:#fff; }
+  .prog-meta .sub{ font-size:13.5px; font-weight:600; color:rgba(255,255,255,.9); }
   .prog-meta .sub b{ color:#fff; }
 
-  .home-content{ flex:1; overflow:hidden; padding:22px 22px 0; position:relative; }
+  .home-content{ flex:1; overflow:hidden; padding:16px 22px 0; position:relative; }
   .section-row{ display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; }
+  .seg-tabs{ display:flex; gap:4px; background:#fff; border:1.5px solid var(--line); border-radius:var(--r-pill); padding:4px; box-shadow:var(--shadow-sm); }
+  .seg-tab{ height:34px; padding:0 16px; border:none; background:transparent; border-radius:var(--r-pill); font-family:var(--font); font-weight:700; font-size:13.5px; color:var(--muted); display:flex; align-items:center; gap:6px; cursor:pointer; }
+  .seg-tab.active{ background:var(--sky-soft); color:var(--sky-deep); }
+  .seg-tab svg{ width:15px; height:15px; }
   .section-title{ font-family:var(--display); font-weight:600; font-size:20px; color:var(--ink); }
   .sort-btn{ display:flex; align-items:center; gap:6px; height:38px; padding:0 14px; border-radius:var(--r-pill);
     border:1.5px solid var(--line); background:#fff; font-weight:700; font-size:13.5px; color:var(--sky-deep); box-shadow:var(--shadow-sm); }
@@ -236,7 +238,7 @@
   /* bottom nav */
   .bottom-nav{
     flex:0 0 auto; height:92px; background:#fff; border-top:1px solid var(--line);
-    display:grid; grid-template-columns:repeat(6,1fr); align-items:start; padding:12px 6px 0;
+    display:grid; grid-template-columns:repeat(4,1fr); align-items:start; padding:12px 6px 0;
     box-shadow:0 -10px 30px rgba(43,109,150,.06);
   }
   .nav-item{ display:flex; flex-direction:column; align-items:center; gap:5px; color:var(--muted); }
@@ -361,7 +363,6 @@
                   <div class="hh-name">Maya</div>
                 </div>
                 <div class="hh-right">
-                  <div class="coin-pill"><span class="coin"><i data-lucide="crown"></i></span>20</div>
                   <div class="avatar"><i data-lucide="user-round"></i></div>
                 </div>
               </div>
@@ -369,7 +370,7 @@
               <div class="progress-card">
                 <div class="ring">
                   <svg width="78" height="78" viewBox="0 0 78 78">
-                    <circle cx="39" cy="39" r="33" fill="none" stroke="rgba(255,255,255,.28)" stroke-width="9"></circle>
+                    <circle cx="39" cy="39" r="33" fill="none" stroke="rgba(255,255,255,.35)" stroke-width="9"></circle>
                     <circle cx="39" cy="39" r="33" fill="none" stroke="#fff" stroke-width="9" stroke-linecap="round"
                       stroke-dasharray="207.3" stroke-dashoffset="66.3"></circle>
                   </svg>
@@ -386,7 +387,10 @@
             <!-- content -->
             <div class="home-content">
               <div class="section-row">
-                <div class="section-title">Today</div>
+                <div class="seg-tabs">
+                  <button class="seg-tab active"><i data-lucide="list-checks"></i>Tasks</button>
+                  <button class="seg-tab"><i data-lucide="layout-grid"></i>Rooms</button>
+                </div>
                 <button class="sort-btn">Sort <i data-lucide="chevron-down"></i></button>
               </div>
 
@@ -432,16 +436,10 @@
                 <div class="nav-ic"><i data-lucide="list-checks"></i></div><div class="nav-lbl">Tasks</div>
               </div>
               <div class="nav-item">
-                <div class="nav-ic"><i data-lucide="sparkles"></i></div><div class="nav-lbl">Clean</div>
+                <div class="nav-ic"><i data-lucide="heart"></i></div><div class="nav-lbl">Dates</div>
               </div>
               <div class="nav-item">
                 <div class="nav-ic"><i data-lucide="history"></i></div><div class="nav-lbl">History</div>
-              </div>
-              <div class="nav-item">
-                <div class="nav-ic"><i data-lucide="calendar-days"></i></div><div class="nav-lbl">Calendar</div>
-              </div>
-              <div class="nav-item">
-                <div class="nav-ic"><i data-lucide="heart"></i></div><div class="nav-lbl">Dates</div>
               </div>
               <div class="nav-item">
                 <div class="nav-ic"><i data-lucide="settings"></i></div><div class="nav-lbl">Settings</div>
@@ -477,14 +475,13 @@
                   <div class="hh-name">Maya</div>
                 </div>
                 <div class="hh-right">
-                  <div class="coin-pill"><span class="coin"><i data-lucide="crown"></i></span>20</div>
                   <div class="avatar"><i data-lucide="user-round"></i></div>
                 </div>
               </div>
               <div class="progress-card">
                 <div class="ring">
                   <svg width="78" height="78" viewBox="0 0 78 78">
-                    <circle cx="39" cy="39" r="33" fill="none" stroke="rgba(255,255,255,.28)" stroke-width="9"></circle>
+                    <circle cx="39" cy="39" r="33" fill="none" stroke="rgba(255,255,255,.35)" stroke-width="9"></circle>
                     <circle cx="39" cy="39" r="33" fill="none" stroke="#fff" stroke-width="9" stroke-linecap="round"
                       stroke-dasharray="207.3" stroke-dashoffset="66.3"></circle>
                   </svg>
