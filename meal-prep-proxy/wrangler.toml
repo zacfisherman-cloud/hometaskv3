@@ -1,0 +1,9 @@
+name = "meal-prep-proxy"
+main = "worker.js"
+compatibility_date = "2025-01-01"
+
+# Workers AI needs no secret/API key — the [ai] binding below gives the
+# Worker access to Cloudflare's hosted open models on the account's free
+# allocation (10,000 neurons/day). Nothing to enable in the dashboard.
+[ai]
+binding = "AI"

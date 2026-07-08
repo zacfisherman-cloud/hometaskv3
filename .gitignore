@@ -1,0 +1,5 @@
+.DS_Store
+firestore-debug.log
+.firebase/
+.wrangler/
+meal-prep-proxy/.wrangler/

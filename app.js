@@ -1,0 +1,2771 @@
+/* ════════════════════════════════════════ STATE & DEFAULTS */
+firebase.initializeApp({
+  apiKey:"AIzaSyA_ppt9Y5S4qqvb4Jr3unzvecxE9Pjg5QI",
+  authDomain:"home-app-d73bc.firebaseapp.com",
+  projectId:"home-app-d73bc",
+  storageBucket:"home-app-d73bc.firebasestorage.app",
+  messagingSenderId:"908678023697",
+  appId:"1:908678023697:web:8901d89b70057144b23fb0"
+});
+const db = firebase.firestore();
+const HOUSEHOLD = db.collection('households').doc('home');
+
+let S = {};
+
+const FREQ_DAYS = {daily:1, weekly:7, fortnightly:14, monthly:30};
+const FREQ_LABELS = {daily:'Daily', weekly:'Weekly', fortnightly:'Fortnightly', monthly:'Monthly', custom:'Custom'};
+const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const DAYS = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+const ROOM_CHIPS = [
+  {name:'Kitchen',             icon:'utensils'},
+  {name:'Bathroom (Living)',   icon:'droplets'},
+  {name:'Bathroom (Bedroom)',  icon:'droplets'},
+  {name:'Bedroom',             icon:'bed'},
+  {name:'Study Nook',          icon:'monitor'},
+  {name:'Garage',              icon:'warehouse'},
+  {name:"Ella's Study Room",   icon:'book-open'},
+  {name:'Living Room',         icon:'sofa'},
+  {name:'Laundry',             icon:'washing-machine'},
+  {name:'Outdoor',             icon:'sun'},
+];
+
+function uid(){ return Math.random().toString(36).slice(2,9); }
+function todayStr(){ return new Date().toISOString().split('T')[0]; }
+
+// Escapes free-text user input before it's interpolated into innerHTML —
+// covers text-node and double-quoted-attribute contexts alike.
+function escapeHtml(str){
+  return String(str ?? '').replace(/[&<>"']/g, ch => ({
+    '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'
+  }[ch]));
+}
+
+function addDays(dateStr, n){
+  const d = new Date(dateStr + 'T00:00:00'); d.setDate(d.getDate() + n);
+  return d.toISOString().split('T')[0];
+}
+function getWeekStart(d = new Date()){
+  const day = d.getDay(), diff = d.getDate() - day + (day===0?-6:1);
+  const m = new Date(d); m.setDate(diff); m.setHours(0,0,0,0);
+  return m.toISOString().split('T')[0];
+}
+function weekLabel(ws){
+  const s = new Date(ws+'T00:00:00'), e = new Date(s); e.setDate(e.getDate()+6);
+  return `${MONTHS[s.getMonth()]} ${s.getDate()} — ${e.getDate()}`;
+}
+function greeting(){
+  const h = new Date().getHours();
+  return h<12 ? 'Good morning,' : h<17 ? 'Good afternoon,' : 'Good evening,';
+}
+function getFreqDays(task){
+  if(task.frequency === 'custom') return task.customDays || 7;
+  return FREQ_DAYS[task.frequency] || 7;
+}
+function freqLabel(task){
+  if(task.frequency === 'custom') return `Every ${task.customDays||7} days`;
+  return FREQ_LABELS[task.frequency] || 'Weekly';
+}
+
+function dayLabelFor(dateStr){
+  const t = todayStr();
+  if(dateStr === t) return 'Today';
+  if(dateStr === addDays(t, 1)) return 'Tomorrow';
+  const d = new Date(dateStr + 'T00:00:00');
+  const diff = Math.round((d - new Date(t+'T00:00:00')) / 86400000);
+  if(diff > 0 && diff < 7) return DAYS[d.getDay()];
+  return `${DAYS[d.getDay()]}, ${d.getDate()} ${MONTHS[d.getMonth()]}`;
+}
+function shortDateStr(dateStr){
+  const d = new Date(dateStr+'T00:00:00');
+  return `${d.getDate()} ${MONTHS[d.getMonth()]}`;
+}
+function dueDateDisplay(dateStr){
+  const t = todayStr();
+  if(dateStr < t)  return {cls:'due-overdue', text:'Overdue'};
+  if(dateStr === t) return {cls:'due-today',   text:'Due today'};
+  if(dateStr === addDays(t,1)) return {cls:'due-soon', text:'Due tomorrow'};
+  const d = new Date(dateStr+'T00:00:00');
+  return {cls:'due-soon', text:`Due ${d.getDate()} ${MONTHS[d.getMonth()]}`};
+}
+
+function taskIcon(task){
+  const n = task.name.toLowerCase();
+  if(task.isDeepClean) return 'sparkles';
+  if(/kitchen|cook|dish|oven/i.test(n))          return 'utensils';
+  if(/bath|toilet|shower|basin/i.test(n))         return 'droplets';
+  if(/vacuum|sweep|mop|floor|dust/i.test(n))      return 'wind';
+  if(/laundry|wash|sheet|linen/i.test(n))         return 'washing-machine';
+  if(/bin|rubbish|trash|shop|errand|buy/i.test(n))return 'shopping-bag';
+  if(/garden|mow|lawn|outdoor/i.test(n))          return 'sun';
+  return 'list-checks';
+}
+
+function gcalLink(task){
+  const start = task.dueDate.replace(/-/g,'');
+  const end   = addDays(task.dueDate, 1).replace(/-/g,'');
+  const details = `${freqLabel(task)} · ${task.difficulty}${task.isDeepClean?' · Deep Clean':''}${task.room?' · '+task.room:''}`;
+  let recur = '';
+  if(task.frequency==='daily')            recur='&recur=RRULE:FREQ=DAILY';
+  else if(task.frequency==='weekly')      recur='&recur=RRULE:FREQ=WEEKLY';
+  else if(task.frequency==='fortnightly') recur='&recur=RRULE:FREQ=WEEKLY;INTERVAL=2';
+  else if(task.frequency==='monthly')     recur='&recur=RRULE:FREQ=MONTHLY';
+  else if(task.frequency==='custom'&&task.customDays) recur=`&recur=RRULE:FREQ=DAILY;INTERVAL=${task.customDays}`;
+  return `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(task.name)}&dates=${start}/${end}&details=${encodeURIComponent(details)}${recur}`;
+}
+function shouldShowCal(task){
+  return task.assignee === 'Both' || task.assignee === myName();
+}
+
+/* ════════════════════════════════════════ STORAGE */
+const LS_KEY = 'ht-v3';
+function saveLocal(){ try{ localStorage.setItem(LS_KEY, JSON.stringify(S)); }catch(e){} }
+function loadLocal(){
+  try{ const d = localStorage.getItem(LS_KEY); if(d) return JSON.parse(d); }catch(e){}
+  return null;
+}
+function save(){ HOUSEHOLD.set(S); saveLocal(); }
+function defaultState(){ return {name1:'Zac',name2:'Ella',setup:false,tasks:makeDefaultTasks(),completedLog:[],dates:{toVisit:[],visited:[]},email1:'',email2:'',
+  // Meal Prep week state — small + hot, so it lives in the main doc alongside
+  // everything else. Saved recipes themselves go in a subcollection (stage 3+).
+  mealPrep:{style:null, proteins:[], activeRecipeIds:[], grocery:[], dismissed:[]}}; }
+
+// Deep-merges `source` onto `defaults` — a missing nested field (e.g. a
+// legacy doc without dates.visited) falls back to its default instead of
+// the whole nested object being replaced wholesale, which is what a plain
+// Object.assign(defaultState(), source) would otherwise do.
+function deepMerge(defaults, source){
+  if(Array.isArray(defaults) || Array.isArray(source)) return source !== undefined ? source : defaults;
+  if(typeof defaults!=='object' || defaults===null || typeof source!=='object' || source===null){
+    return source !== undefined ? source : defaults;
+  }
+  const out = {...defaults};
+  for(const key of Object.keys(source)) out[key] = deepMerge(defaults[key], source[key]);
+  return out;
+}
+
+// Applies `mutate` to the local state immediately (so the UI updates without
+// waiting on a round trip), then re-applies that same mutation inside a
+// Firestore transaction against a FRESH read of the server document. Two
+// near-simultaneous edits from different devices each replay their own
+// change on top of the other's, instead of one full-document .set() blindly
+// overwriting whatever the other device just wrote.
+function commitChange(mutate){
+  const fallbackBase = JSON.parse(JSON.stringify(S)); // pre-mutation snapshot; only used if no remote doc exists yet
+  mutate(S);
+  saveLocal();
+  db.runTransaction(async tx => {
+    const snap = await tx.get(HOUSEHOLD);
+    const fresh = snap.exists ? deepMerge(defaultState(), snap.data()) : fallbackBase;
+    mutate(fresh);
+    tx.set(HOUSEHOLD, fresh);
+  }).catch(err => console.error('Sync failed:', err));
+}
+
+// Which shared name slot ('name1'/'name2') *this device* belongs to. This is
+// local-only and deliberately never synced to Firestore — it's what lets a
+// second device join an existing household without overwriting the shared
+// name fields (see boot logic below).
+const ROLE_KEY = 'ht-role';
+function loadRole(){ try{ return localStorage.getItem(ROLE_KEY); }catch(e){ return null; } }
+function saveRole(role){ try{ localStorage.setItem(ROLE_KEY, role); }catch(e){} }
+let myRole = loadRole(); // 'name1' | 'name2' | null (not chosen yet)
+function myName(){ return myRole==='name2' ? S.name2 : S.name1; }
+
+/* ── theme: light is the permanent default at all hours. Dark is a
+   manual opt-in from Settings only — the old time-of-day auto-switch
+   is retired. Local-only preference, never synced. */
+const THEME_KEY = 'ht-theme'; // 'light' | 'dark'
+function loadThemePref(){
+  try{
+    const v = localStorage.getItem(THEME_KEY);
+    // migrate the retired 'auto' pref (and anything unexpected) to light
+    return v === 'dark' ? 'dark' : 'light';
+  }catch(e){ return 'light'; }
+}
+function saveThemePref(v){ try{ localStorage.setItem(THEME_KEY, v); }catch(e){} }
+function applyTheme(){
+  const t = loadThemePref();
+  document.documentElement.dataset.theme = t;
+  document.getElementById('meta-theme')?.setAttribute('content', t==='light' ? '#EEF3F9' : '#10131C');
+}
+applyTheme();
+function makeDefaultTasks(){
+  const t = todayStr();
+  return [
+    {id:uid(), name:'Clean kitchen',     assignee:'Zac',  frequency:'weekly',      customDays:7,  dueDate:t,              difficulty:'Easy',   isDeepClean:false, room:'Kitchen'},
+    {id:uid(), name:'Vacuum living room',assignee:'Both', frequency:'weekly',      customDays:7,  dueDate:addDays(t,1),   difficulty:'Easy',   isDeepClean:false, room:'Living Room'},
+    {id:uid(), name:'Clean bathrooms',   assignee:'Ella', frequency:'fortnightly', customDays:14, dueDate:addDays(t,2),   difficulty:'Medium', isDeepClean:true,  room:'Bathroom (Living)'},
+    {id:uid(), name:'Do the laundry',    assignee:'Both', frequency:'weekly',      customDays:7,  dueDate:addDays(t,3),   difficulty:'Easy',   isDeepClean:false, room:'Laundry'},
+    {id:uid(), name:'Take out bins',     assignee:'Zac',  frequency:'weekly',      customDays:7,  dueDate:addDays(t,4),   difficulty:'Easy',   isDeepClean:false, room:'Outdoor'},
+    {id:uid(), name:'Mop floors',        assignee:'Ella', frequency:'fortnightly', customDays:14, dueDate:addDays(t,5),   difficulty:'Medium', isDeepClean:false, room:'Living Room'},
+  ];
+}
+
+/* ════════════════════════════════════════ PROGRESS */
+function weekProgress(){
+  const ws = getWeekStart(), we = addDays(ws, 6);
+  const logThisWeek = (S.completedLog||[]).filter(l => l.completedAt >= ws && l.completedAt <= we);
+  const doneThisWeek = logThisWeek.length;
+  // A short-cycle task (daily etc.) gets rescheduled to a date that can still
+  // fall inside the current week the moment it's completed. Excluding
+  // already-completed-this-week task ids from the pending count keeps each
+  // task counted once — either done or pending, never both.
+  const completedIds = new Set(logThisWeek.map(l => l.taskId));
+  const pendingThisWeek = S.tasks.filter(t => t.dueDate >= ws && t.dueDate <= we && !completedIds.has(t.id)).length;
+  const total = doneThisWeek + pendingThisWeek;
+  const pct   = total ? Math.round(doneThisWeek/total*100) : 0;
+  return {done: doneThisWeek, total, pct};
+}
+
+// Twilight hero ring: thin gradient arc with a glowing comet-tip dot at the
+// arc's end. The gradient id is randomized because the SVG can exist twice
+// in the DOM during header transitions.
+function ringHTML(pct, size=150, sw=3){
+  const cx = size/2, cy = size/2, r = (size - sw - 12)/2;
+  const C = 2*Math.PI*r, off = C*(1 - pct/100);
+  const ang = -Math.PI/2 + (Math.min(pct,100)/100)*2*Math.PI;
+  const tx = cx + r*Math.cos(ang), ty = cy + r*Math.sin(ang);
+  const gid = 'rg' + uid();
+  return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
+    <defs><linearGradient id="${gid}" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="var(--acc-a)"/><stop offset="1" stop-color="var(--acc-b)"/>
+    </linearGradient></defs>
+    <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="var(--ring-track)" stroke-width="${sw}"/>
+    <circle class="ring-arc" cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="url(#${gid})" stroke-width="${sw}"
+      stroke-linecap="round" stroke-dasharray="${C.toFixed(1)}" stroke-dashoffset="${off.toFixed(1)}"
+      transform="rotate(-90 ${cx} ${cy})"/>
+    ${pct > 0 ? `<circle class="ring-tip" cx="${tx.toFixed(1)}" cy="${ty.toFixed(1)}" r="4" fill="var(--acc-a)"/>` : ''}
+  </svg>`;
+}
+
+/* ════════════════════════════════════════ TASKS TAB */
+function updateMiniHdr(){
+  const isRooms = tasksSubView==='rooms'||tasksSubView==='roomDetail';
+  document.getElementById('mh-tasks-btn')?.classList.toggle('active', !isRooms);
+  document.getElementById('mh-rooms-btn')?.classList.toggle('active', isRooms);
+}
+
+function renderTasks(){
+  const inRooms = tasksSubView==='rooms'||tasksSubView==='roomDetail';
+  const inHist  = tasksSubView==='history';
+  const prog = weekProgress();
+  if(inRooms){
+    // Rooms gets its own compact, static header: the weekly ring is Tasks-view
+    // context, and the collapsing behavior has nowhere to go on a short grid —
+    // it caused a visible layout glitch. A one-line count keeps the context.
+    document.getElementById('hdr').innerHTML = `
+      <div class="tasks-hdr compact">
+        <div class="hh-top">
+          <div>
+            <div class="hh-hello">${greeting()}</div>
+            <div class="hh-name">${escapeHtml(myName())}</div>
+          </div>
+          <div class="hh-avatar">${escapeHtml((myName()||'?')[0].toUpperCase())}</div>
+        </div>
+        <div class="compact-sub"><b>${prog.done} of ${prog.total}</b> done this week</div>
+      </div>`;
+    // The compact header never collapses — clear any collapse state carried
+    // over from the Tasks list (e.g. arriving via the mini-header's Rooms tab).
+    isHdrCollapsed = false;
+    document.getElementById('mini-hdr')?.classList.remove('visible');
+    const panel = document.getElementById('panel');
+    panel.style.paddingTop = '';
+  } else {
+    document.getElementById('hdr').innerHTML = `
+      <div class="tasks-hdr">
+        <div class="hh-top">
+          <div>
+            <div class="hh-hello">${greeting()}</div>
+            <div class="hh-name">${escapeHtml(myName())}</div>
+          </div>
+          <div class="hh-avatar">${escapeHtml((myName()||'?')[0].toUpperCase())}</div>
+        </div>
+        <div class="hero-ring">${ringHTML(prog.pct)}<div class="ring-in"><b>${prog.pct}</b><span>% this week</span></div></div>
+        <div class="hero-sub"><b>${prog.done} of ${prog.total}</b> · ${weekLabel(getWeekStart())}</div>
+      </div>`;
+    // Re-apply collapsed state without transition after the header DOM is rebuilt
+    if(isHdrCollapsed){
+      const hdr = document.querySelector('#hdr .tasks-hdr');
+      if(hdr){ hdr.style.transition='none'; hdr.style.height='0'; hdr.classList.add('collapsing'); }
+    }
+  }
+  lucide.createIcons();
+  if(inHist)                                      _renderHistoryPanel();
+  else if(tasksSubView==='rooms')                 _renderRoomsPanel();
+  else if(tasksSubView==='roomDetail'&&currentRoomDetail) _renderRoomDetailPanel(currentRoomDetail);
+  else                                            _renderTasksPanel();
+  updateMiniHdr();
+}
+function _tabsRowHTML(activeTab){
+  const t = activeTab==='tasks', r = activeTab==='rooms';
+  return `<div class="tasks-view-row">
+    <div class="tasks-view-chips">
+      <button class="tv-chip${t?' sel':''}" id="view-tasks"><i data-lucide="list-checks"></i>Tasks</button>
+      <button class="tv-chip${r?' sel':''}" id="view-rooms"><i data-lucide="layout-grid"></i>Rooms</button>
+    </div>
+    <button class="tab-add-btn" id="hdr-add"><i data-lucide="plus"></i></button>
+  </div>`;
+}
+function _bindTabListeners(){
+  const a=document.getElementById('hdr-add'); if(a) a.onclick=openAddTaskSheet;
+  const t=document.getElementById('view-tasks'); if(t) t.onclick=()=>{ tasksSubView='tasks'; currentRoomDetail=null; renderTasks(); };
+  const r=document.getElementById('view-rooms'); if(r) r.onclick=()=>{ tasksSubView='rooms'; currentRoomDetail=null; renderTasks(); };
+}
+function _renderTasksPanel(){
+  const t = todayStr();
+  const overdue  = S.tasks.filter(x=>x.dueDate<t).sort((a,b)=>a.dueDate.localeCompare(b.dueDate));
+  const upcoming = S.tasks.filter(x=>x.dueDate>=t).sort((a,b)=>a.dueDate.localeCompare(b.dueDate));
+  const byDate = {};
+  upcoming.forEach(x=>{ (byDate[x.dueDate]=byDate[x.dueDate]||[]).push(x); });
+  let html = _tabsRowHTML('tasks');
+  if(overdue.length){
+    html += `<div class="day-header"><div class="day-label overdue-lbl">Overdue</div></div>`;
+    overdue.forEach(x=>{ html+=taskCardHTML(x); });
+  }
+  const dates = Object.keys(byDate).sort();
+  if(!dates.length&&!overdue.length){
+    html += `<div class="empty-state"><i data-lucide="check-circle-2"></i><p>All clear! Tap + to add tasks.</p></div>`;
+  }
+  dates.forEach(date=>{
+    const isToday = date===t;
+    html += `<div class="day-header">
+      <div class="day-label ${isToday?'today-lbl':''}">${dayLabelFor(date)}</div>
+      <div class="day-date-pill">${shortDateStr(date)}</div>
+    </div>`;
+    byDate[date].forEach(x=>{ html+=taskCardHTML(x); });
+  });
+  document.getElementById('panel').innerHTML = html;
+  lucide.createIcons();
+  _bindTabListeners();
+  document.querySelectorAll('[data-done]').forEach(btn=>btn.addEventListener('click',e=>{ e.stopPropagation(); completeTask(btn.dataset.done); }));
+  document.querySelectorAll('[data-skip]').forEach(btn=>btn.addEventListener('click',e=>{ e.stopPropagation(); skipTask(btn.dataset.skip); }));
+  document.querySelectorAll('[data-task-card]').forEach(card=>card.addEventListener('click',e=>{ if(e.target.closest('button,a')) return; openTaskDetail(card.dataset.taskCard); }));
+}
+function _renderHistoryPanel(){
+  const log = S.completedLog||[];
+  if(!log.length){
+    document.getElementById('panel').innerHTML=`<div class="empty-state"><i data-lucide="history"></i><p>No history yet — complete your first task!</p></div>`;
+    lucide.createIcons(); return;
+  }
+  const byWeek = {};
+  log.forEach(l=>{ const ws=getWeekStart(new Date(l.completedAt+'T00:00:00')); (byWeek[ws]=byWeek[ws]||[]).push(l); });
+  const ws = getWeekStart();
+  const prog = weekProgress();
+  const thisWeekItems = byWeek[ws]||[];
+  let html = '<div style="padding-top:6px"></div>';
+  html += `<div class="hist-card">
+    <div class="hist-week"><span>${weekLabel(ws)} <b style="color:var(--sky-deep)">· This week</b></span><span class="hist-pct">${prog.pct}%</span></div>
+    <div class="hist-bar"><i style="width:${prog.pct}%"></i></div>
+    <div style="font-size:13px;font-weight:600;color:var(--muted);margin-bottom:8px">${prog.done} done · ${prog.total-prog.done} pending</div>
+    <div class="hist-items">
+      ${thisWeekItems.map(l=>histItem(l)).join('')}
+      ${!thisWeekItems.length?'<div style="color:var(--muted);font-size:13.5px;font-weight:600">None completed yet this week</div>':''}
+    </div>
+  </div>`;
+  Object.keys(byWeek).filter(w=>w!==ws).sort().reverse().forEach(weekStart=>{
+    const items=byWeek[weekStart];
+    html+=`<div class="hist-card">
+      <div class="hist-week"><span>${weekLabel(weekStart)}</span><span style="font-weight:700;color:var(--green)">${items.length} done</span></div>
+      <div class="hist-items">${items.map(l=>histItem(l)).join('')}</div>
+    </div>`;
+  });
+  document.getElementById('panel').innerHTML = html;
+  lucide.createIcons();
+}
+function _renderRoomsPanel(){
+  let html = _tabsRowHTML('rooms');
+  html += '<div class="room-grid">';
+  ROOM_CHIPS.forEach(room=>{
+    const count = S.tasks.filter(t=>t.room===room.name).length;
+    html += `<div class="room-tile" data-room-nav="${room.name}">
+      <div class="room-badge ${count===0?'zero':''}">${count}</div>
+      <div class="room-tile-icon"><i data-lucide="${room.icon}"></i></div>
+      <div class="room-tile-name">${room.name}</div>
+    </div>`;
+  });
+  html += '</div>';
+  document.getElementById('panel').innerHTML = html;
+  lucide.createIcons();
+  _bindTabListeners();
+  document.querySelectorAll('[data-room-nav]').forEach(tile=>{
+    tile.addEventListener('click',()=>{ tasksSubView='roomDetail'; currentRoomDetail=tile.dataset.roomNav; renderTasks(); });
+  });
+}
+function _renderRoomDetailPanel(roomName){
+  const room = ROOM_CHIPS.find(r=>r.name===roomName);
+  const tasks = S.tasks.filter(t=>t.room===roomName).sort((a,b)=>a.dueDate.localeCompare(b.dueDate));
+  const t = todayStr();
+  let html = _tabsRowHTML('rooms');
+  html += `<button class="room-back" id="room-back-btn"><i data-lucide="arrow-left"></i>${roomName}</button>`;
+  if(!tasks.length){
+    html += `<div class="empty-state"><i data-lucide="${room?room.icon:'layout-grid'}"></i><p>No tasks in ${roomName}</p></div>`;
+  } else {
+    const overdue  = tasks.filter(x=>x.dueDate<t);
+    const upcoming = tasks.filter(x=>x.dueDate>=t);
+    if(overdue.length){ html+=`<div class="day-header"><div class="day-label" style="color:var(--red)">Overdue</div></div>`; overdue.forEach(x=>{html+=taskCardHTML(x);}); }
+    upcoming.forEach(x=>{html+=taskCardHTML(x);});
+  }
+  document.getElementById('panel').innerHTML = html;
+  lucide.createIcons();
+  _bindTabListeners();
+  document.getElementById('room-back-btn').onclick=()=>{ tasksSubView='rooms'; currentRoomDetail=null; renderTasks(); };
+  document.querySelectorAll('[data-done]').forEach(btn=>btn.addEventListener('click',e=>{ e.stopPropagation(); completeTask(btn.dataset.done); }));
+  document.querySelectorAll('[data-skip]').forEach(btn=>btn.addEventListener('click',e=>{ e.stopPropagation(); skipTask(btn.dataset.skip); }));
+  document.querySelectorAll('[data-task-card]').forEach(card=>card.addEventListener('click',e=>{ if(e.target.closest('button,a')) return; openTaskDetail(card.dataset.taskCard); }));
+}
+
+function taskCardHTML(task){
+  const diff  = task.difficulty || 'Easy';
+  const cls   = {Easy:'easy', Medium:'medium', Hard:'hard'}[diff] || 'easy';
+  const diffCls = {Easy:'ez', Medium:'md', Hard:'hd'}[diff] || 'ez';
+  const due   = dueDateDisplay(task.dueDate);
+
+  return `<div class="task-card ${cls}" data-task-card="${task.id}">
+    <div class="tc-inner">
+      <div class="tc-top">
+        <div class="tc-icon"><i data-lucide="${taskIcon(task)}"></i></div>
+        <div class="tc-main">
+          <div class="tc-title">${escapeHtml(task.name)}</div>
+          <div class="tc-badges">
+            <span class="badge badge-who"><i data-lucide="user"></i>${escapeHtml(task.assignee)}</span>
+            <span class="badge badge-freq">${freqLabel(task)}</span>
+            <span class="badge badge-diff ${diffCls}">${diff}</span>
+            ${task.isDeepClean ? '<span class="badge badge-dc"><i data-lucide="sparkles"></i>Deep clean</span>' : ''}
+          </div>
+          <div class="tc-due ${due.cls}">
+            <i data-lucide="calendar"></i>${due.text}
+          </div>
+        </div>
+      </div>
+      <div class="tc-actions">
+        <button class="tc-act" data-skip="${task.id}"><i data-lucide="skip-forward"></i>Skip</button>
+        <button class="tc-act done-act" data-done="${task.id}"><i data-lucide="check"></i>Done</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+function completeTask(id){
+  if(!S.tasks.find(t=>t.id===id)) return;
+  const logId = uid(), completedAt = todayStr();
+  commitChange(state => {
+    const task = state.tasks.find(t=>t.id===id); if(!task) return;
+    state.completedLog.push({
+      id:logId, taskId:id, name:task.name,
+      completedAt, difficulty:task.difficulty,
+      assignee:task.assignee, isDeepClean:task.isDeepClean
+    });
+    task.dueDate = addDays(task.dueDate, getFreqDays(task));
+  });
+  renderTasks();
+}
+function skipTask(id){
+  if(!S.tasks.find(t=>t.id===id)) return;
+  commitChange(state => {
+    const task = state.tasks.find(t=>t.id===id); if(!task) return;
+    task.dueDate = addDays(task.dueDate, getFreqDays(task));
+  });
+  renderTasks();
+}
+
+/* ── Add task sheet ──────────────────────────────── */
+function openAddTaskSheet(){
+  let selWho  = myName();
+  let selFreq = 'weekly';
+  let selDiff = 'Easy';
+  let isDeepClean = false;
+  let selRoom = '';
+
+  openSheet(`
+    <div class="grabber"></div>
+    <div class="sheet-head">
+      <div class="sheet-title">New task</div>
+      <button class="sheet-close" id="sh-close"><i data-lucide="x"></i></button>
+    </div>
+    <div class="sheet-field">
+      <i data-lucide="pencil" class="ic"></i>
+      <input id="nt-name" type="text" placeholder="Task name…">
+    </div>
+    <div>
+      <div class="seg-lbl">Assign to</div>
+      <div class="chips">
+        <div class="chip ${selWho===S.name1?'sel':''}" data-who="${escapeHtml(S.name1)}"><i data-lucide="user"></i>&nbsp;${escapeHtml(S.name1)}</div>
+        <div class="chip ${selWho===S.name2?'sel':''}" data-who="${escapeHtml(S.name2)}"><i data-lucide="user"></i>&nbsp;${escapeHtml(S.name2)}</div>
+        <div class="chip ${selWho==='Both'?'sel':''}" data-who="Both"><i data-lucide="users"></i>&nbsp;Both</div>
+      </div>
+    </div>
+    <div>
+      <div class="seg-lbl">Frequency</div>
+      <div class="chip-grid" id="freq-chips">
+        <div class="chip" data-freq="daily">Daily</div>
+        <div class="chip sel" data-freq="weekly">Weekly</div>
+        <div class="chip" data-freq="fortnightly">Fortnightly</div>
+        <div class="chip" data-freq="monthly">Monthly</div>
+        <div class="chip" data-freq="custom">Every X days</div>
+      </div>
+      <div id="custom-days-row" class="x-days-row" style="display:none;margin-top:10px">
+        <span>Every</span>
+        <input class="x-days-input" id="nt-custom-days" type="number" value="3" min="1" max="365">
+        <span>days</span>
+      </div>
+    </div>
+    <div>
+      <div class="seg-lbl">Start date</div>
+      <input class="sheet-date-input" id="nt-startdate" type="date" value="${todayStr()}">
+    </div>
+    <div>
+      <div class="seg-lbl">Difficulty</div>
+      <div class="chips">
+        <div class="chip sel" data-diff="Easy" style="color:var(--green);border-color:var(--green);background:var(--green-soft)">Easy</div>
+        <div class="chip" data-diff="Medium">Medium</div>
+        <div class="chip" data-diff="Hard">Hard</div>
+      </div>
+    </div>
+    <div class="toggle-row">
+      <div>
+        <div class="toggle-lbl">Deep clean?</div>
+        <div class="toggle-sub">Part of the cleaning routine</div>
+      </div>
+      <label class="toggle-switch">
+        <input type="checkbox" id="nt-deepclean">
+        <div class="toggle-slider"></div>
+      </label>
+    </div>
+    <div>
+      <div class="seg-lbl">Room / Area</div>
+      <div class="chip-grid" id="room-chips" style="grid-template-columns:repeat(3,1fr);gap:7px">
+        ${ROOM_CHIPS.map(r=>`<div class="chip chip-sm" data-room="${r.name}"><i data-lucide="${r.icon}"></i>&nbsp;${r.name}</div>`).join('')}
+      </div>
+    </div>
+    <button class="btn-primary" id="create-task-btn">Add task <i data-lucide="check"></i></button>`,
+  ()=>{
+    document.getElementById('sh-close').onclick = closeSheet;
+    document.getElementById('nt-name').focus();
+
+    // Who chips
+    document.querySelectorAll('[data-who]').forEach(el => el.addEventListener('click', ()=>{
+      selWho = el.dataset.who;
+      document.querySelectorAll('[data-who]').forEach(e => e.classList.toggle('sel', e===el));
+    }));
+
+    // Frequency chips
+    document.querySelectorAll('[data-freq]').forEach(el => el.addEventListener('click', ()=>{
+      selFreq = el.dataset.freq;
+      document.querySelectorAll('[data-freq]').forEach(e => e.classList.toggle('sel', e===el));
+      document.getElementById('custom-days-row').style.display = selFreq==='custom' ? 'flex' : 'none';
+    }));
+
+    // Difficulty chips — update styling dynamically
+    const diffColors = {
+      Easy:  {color:'var(--green)',   border:'var(--green)',    bg:'var(--green-soft)'},
+      Medium:{color:'var(--gold)',      border:'var(--gold)',     bg:'var(--gold-soft)'},
+      Hard:  {color:'var(--red)',     border:'var(--red)',      bg:'var(--red-soft)'},
+    };
+    document.querySelectorAll('[data-diff]').forEach(el => el.addEventListener('click', ()=>{
+      selDiff = el.dataset.diff;
+      document.querySelectorAll('[data-diff]').forEach(e => {
+        const on = e===el;
+        const dc = diffColors[e.dataset.diff];
+        e.style.color       = on ? dc.color  : '';
+        e.style.borderColor = on ? dc.border : '';
+        e.style.background  = on ? dc.bg     : '';
+        e.classList.toggle('sel', on);
+      });
+    }));
+
+    document.getElementById('nt-deepclean').addEventListener('change', e => {
+      isDeepClean = e.target.checked;
+    });
+
+    document.querySelectorAll('[data-room]').forEach(el => el.addEventListener('click', ()=>{
+      selRoom = el.dataset.room;
+      document.querySelectorAll('[data-room]').forEach(e => e.classList.toggle('sel', e===el));
+    }));
+
+    document.getElementById('create-task-btn').onclick = ()=>{
+      const name = document.getElementById('nt-name').value.trim();
+      if(!name){ document.getElementById('nt-name').focus(); return; }
+      const startDate  = document.getElementById('nt-startdate').value || todayStr();
+      const customDays = parseInt(document.getElementById('nt-custom-days')?.value)||3;
+      const newId = uid();
+      commitChange(state => {
+        state.tasks.push({
+          id:newId, name, assignee:selWho, frequency:selFreq, customDays,
+          dueDate:startDate, difficulty:selDiff, isDeepClean, room:selRoom
+        });
+      });
+      closeSheet(); renderTasks();
+    };
+  });
+}
+
+/* ── Task detail sheet ───────────────────────────── */
+function openTaskDetail(id){
+  const task = S.tasks.find(t=>t.id===id); if(!task) return;
+  const due = dueDateDisplay(task.dueDate);
+
+  let selWho      = task.assignee;
+  let selFreq     = task.frequency;
+  let selDiff     = task.difficulty;
+  let isDeepClean = task.isDeepClean;
+  let selRoom     = task.room || '';
+
+  const diffColors = {
+    Easy:  {color:'var(--green)',  border:'var(--green)',  bg:'var(--green-soft)'},
+    Medium:{color:'var(--gold)',     border:'var(--gold)',   bg:'var(--gold-soft)'},
+    Hard:  {color:'var(--red)',    border:'var(--red)',    bg:'var(--red-soft)'},
+  };
+  function diffStyle(d){ const c=diffColors[d]; return `color:${c.color};border-color:${c.border};background:${c.bg}`; }
+
+  openSheet(`
+    <div class="grabber"></div>
+    <div class="sheet-head">
+      <div class="sheet-title">Edit task</div>
+      <button class="sheet-close" id="sh-close"><i data-lucide="x"></i></button>
+    </div>
+    <div class="sheet-field">
+      <i data-lucide="pencil" class="ic"></i>
+      <input id="et-name" type="text" value="${escapeHtml(task.name)}" placeholder="Task name…">
+    </div>
+    <div>
+      <div class="seg-lbl">Assign to</div>
+      <div class="chips">
+        <div class="chip ${selWho===S.name1?'sel':''}" data-who="${escapeHtml(S.name1)}"><i data-lucide="user"></i>&nbsp;${escapeHtml(S.name1)}</div>
+        <div class="chip ${selWho===S.name2?'sel':''}" data-who="${escapeHtml(S.name2)}"><i data-lucide="user"></i>&nbsp;${escapeHtml(S.name2)}</div>
+        <div class="chip ${selWho==='Both'?'sel':''}" data-who="Both"><i data-lucide="users"></i>&nbsp;Both</div>
+      </div>
+    </div>
+    <div>
+      <div class="seg-lbl">Frequency</div>
+      <div class="chip-grid">
+        <div class="chip ${selFreq==='daily'?'sel':''}" data-freq="daily">Daily</div>
+        <div class="chip ${selFreq==='weekly'?'sel':''}" data-freq="weekly">Weekly</div>
+        <div class="chip ${selFreq==='fortnightly'?'sel':''}" data-freq="fortnightly">Fortnightly</div>
+        <div class="chip ${selFreq==='monthly'?'sel':''}" data-freq="monthly">Monthly</div>
+        <div class="chip ${selFreq==='custom'?'sel':''}" data-freq="custom">Every X days</div>
+      </div>
+      <div id="et-custom-days-row" class="x-days-row" style="display:${selFreq==='custom'?'flex':'none'};margin-top:10px">
+        <span>Every</span>
+        <input class="x-days-input" id="et-custom-days" type="number" value="${task.customDays||7}" min="1" max="365">
+        <span>days</span>
+      </div>
+    </div>
+    <div>
+      <div class="seg-lbl">Due date <span style="color:var(--${due.cls==='due-overdue'?'red':'sky-deep'})">(${due.text})</span></div>
+      <input class="sheet-date-input" id="et-duedate" type="date" value="${task.dueDate}">
+    </div>
+    <div>
+      <div class="seg-lbl">Difficulty</div>
+      <div class="chips">
+        <div class="chip ${selDiff==='Easy'?'sel':''}" data-diff="Easy" style="${selDiff==='Easy'?diffStyle('Easy'):''}">Easy</div>
+        <div class="chip ${selDiff==='Medium'?'sel':''}" data-diff="Medium" style="${selDiff==='Medium'?diffStyle('Medium'):''}">Medium</div>
+        <div class="chip ${selDiff==='Hard'?'sel':''}" data-diff="Hard" style="${selDiff==='Hard'?diffStyle('Hard'):''}">Hard</div>
+      </div>
+    </div>
+    <div class="toggle-row">
+      <div>
+        <div class="toggle-lbl">Deep clean?</div>
+        <div class="toggle-sub">Part of the cleaning routine</div>
+      </div>
+      <label class="toggle-switch">
+        <input type="checkbox" id="et-deepclean" ${isDeepClean?'checked':''}>
+        <div class="toggle-slider"></div>
+      </label>
+    </div>
+    <div>
+      <div class="seg-lbl">Room / Area</div>
+      <div class="chip-grid" style="grid-template-columns:repeat(3,1fr);gap:7px">
+        ${ROOM_CHIPS.map(r=>`<div class="chip chip-sm ${selRoom===r.name?'sel':''}" data-room="${r.name}"><i data-lucide="${r.icon}"></i>&nbsp;${r.name}</div>`).join('')}
+      </div>
+    </div>
+    ${shouldShowCal(task) ? `
+    <a class="gcal-card" href="${gcalLink(task)}" target="_blank" rel="noopener">
+      <div class="gcal-card-icon"><i data-lucide="calendar-plus"></i></div>
+      <div class="gcal-card-text">
+        <div class="gcal-card-title">Add to Google Calendar</div>
+        <div class="gcal-card-sub">Schedule · ${shortDateStr(task.dueDate)} · ${freqLabel(task)}</div>
+      </div>
+      <div class="gcal-card-arrow"><i data-lucide="external-link"></i></div>
+    </a>` : ''}
+    <div class="detail-btns">
+      <button class="detail-btn del-btn" id="det-del"><i data-lucide="trash-2"></i>Delete</button>
+      <button class="btn-primary" id="det-save" style="margin:0;flex:1"><i data-lucide="check"></i>Save changes</button>
+    </div>`,
+  ()=>{
+    document.getElementById('sh-close').onclick = closeSheet;
+
+    document.querySelectorAll('[data-who]').forEach(el => el.addEventListener('click', ()=>{
+      selWho = el.dataset.who;
+      document.querySelectorAll('[data-who]').forEach(e => e.classList.toggle('sel', e===el));
+    }));
+
+    document.querySelectorAll('[data-freq]').forEach(el => el.addEventListener('click', ()=>{
+      selFreq = el.dataset.freq;
+      document.querySelectorAll('[data-freq]').forEach(e => e.classList.toggle('sel', e===el));
+      document.getElementById('et-custom-days-row').style.display = selFreq==='custom' ? 'flex' : 'none';
+    }));
+
+    document.querySelectorAll('[data-diff]').forEach(el => el.addEventListener('click', ()=>{
+      selDiff = el.dataset.diff;
+      document.querySelectorAll('[data-diff]').forEach(e => {
+        const on = e===el, dc = diffColors[e.dataset.diff];
+        e.style.color       = on ? dc.color  : '';
+        e.style.borderColor = on ? dc.border : '';
+        e.style.background  = on ? dc.bg     : '';
+        e.classList.toggle('sel', on);
+      });
+    }));
+
+    document.getElementById('et-deepclean').addEventListener('change', e => { isDeepClean = e.target.checked; });
+
+    document.querySelectorAll('[data-room]').forEach(el => el.addEventListener('click', ()=>{
+      selRoom = el.dataset.room;
+      document.querySelectorAll('[data-room]').forEach(e => e.classList.toggle('sel', e===el));
+    }));
+
+    document.getElementById('det-save').onclick = ()=>{
+      // Look up the live task by id rather than closing over the object
+      // captured when the sheet opened — a Firestore sync while the sheet
+      // was open replaces S.tasks wholesale, which would otherwise orphan
+      // that captured reference and silently drop this edit.
+      if(!S.tasks.find(t=>t.id===id)){ closeSheet(); renderTasks(); return; }
+      const name = document.getElementById('et-name').value.trim();
+      if(!name){ document.getElementById('et-name').focus(); return; }
+      const newAssignee = selWho, newFreq = selFreq;
+      const parsedCustomDays = parseInt(document.getElementById('et-custom-days')?.value);
+      const newDueDate = document.getElementById('et-duedate').value;
+      const newDiff = selDiff, newDeepClean = isDeepClean, newRoom = selRoom;
+      commitChange(state => {
+        const current = state.tasks.find(t=>t.id===id); if(!current) return;
+        current.name        = name;
+        current.assignee    = newAssignee;
+        current.frequency   = newFreq;
+        current.customDays  = parsedCustomDays || current.customDays || 7;
+        current.dueDate     = newDueDate || current.dueDate;
+        current.difficulty  = newDiff;
+        current.isDeepClean = newDeepClean;
+        current.room        = newRoom;
+      });
+      closeSheet(); renderTasks();
+    };
+
+    document.getElementById('det-del').onclick = ()=>{
+      if(!confirm('Delete this task?')) return;
+      commitChange(state => { state.tasks = state.tasks.filter(t=>t.id!==id); });
+      closeSheet(); renderTasks();
+    };
+  });
+}
+
+/* ════════════════════════════════════════ HISTORY TAB */
+function histItem(l){
+  const dc = {Easy:'hi-easy', Medium:'hi-medium', Hard:'hi-hard'}[l.difficulty]||'hi-easy';
+  return `<div class="hist-item">
+    <i data-lucide="check-circle-2" style="color:var(--green)"></i>
+    <span class="hi-name">${escapeHtml(l.name)}</span>
+    <span class="hi-diff ${dc}">${l.difficulty}</span>
+    <span style="font-size:11.5px;font-weight:700;color:var(--muted)">${escapeHtml(l.assignee)}</span>
+  </div>`;
+}
+
+function renderHistory(){
+  document.getElementById('hdr').innerHTML = `
+    <div class="flat-hdr">
+      <div><div class="flat-hdr-title">Stats</div><div class="flat-hdr-sub">Household insights</div></div>
+      <div class="flat-hdr-icon"><i data-lucide="bar-chart-2"></i></div>
+    </div>`;
+
+  const log = S.completedLog || [];
+  if(!log.length){
+    document.getElementById('panel').innerHTML = `<div class="empty-state"><i data-lucide="bar-chart-2"></i><p>No history yet — complete your first task!</p></div>`;
+    lucide.createIcons(); return;
+  }
+
+  const ws     = getWeekStart();
+  const prog   = weekProgress();
+  const name1  = S.name1, name2 = S.name2;
+  const now    = new Date();
+  const monthStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+
+  /* ── helpers ── */
+  function mineLog(name){ return log.filter(l => l.assignee===name || l.assignee==='Both'); }
+
+  function calcStreak(name){
+    // If nothing done this week, start counting from last week so Monday mornings don't kill the streak
+    const curHas = log.some(l => (l.assignee===name||l.assignee==='Both') && l.completedAt>=ws && l.completedAt<=addDays(ws,6));
+    const start  = curHas ? 0 : 1;
+    let streak = 0;
+    for(let i=start; i<52; i++){
+      const d  = new Date(ws+'T00:00:00'); d.setDate(d.getDate() - i*7);
+      const wS = d.toISOString().split('T')[0], wE = addDays(wS,6);
+      const has = log.some(l => (l.assignee===name||l.assignee==='Both') && l.completedAt>=wS && l.completedAt<=wE);
+      if(has) streak++; else break;
+    }
+    return streak;
+  }
+
+  function topTask(name){
+    const map = {};
+    mineLog(name).forEach(l => { map[l.name] = (map[l.name]||0)+1; });
+    const entries = Object.entries(map).sort((a,b)=>b[1]-a[1]);
+    return entries[0] || null;
+  }
+
+  /* ── 1. Current week card ── */
+  const thisWeekItems = log.filter(l => l.completedAt>=ws && l.completedAt<=addDays(ws,6));
+
+  let html = `<div style="padding:6px 16px 0">
+    <div class="hist-card">
+      <div class="hist-week">
+        <span>${weekLabel(ws)} <b style="color:var(--sky-deep)">· This week</b></span>
+        <span class="hist-pct">${prog.pct}%</span>
+      </div>
+      <div class="hist-bar"><i style="width:${prog.pct}%"></i></div>
+      <div style="font-size:13px;font-weight:600;color:var(--muted);margin-bottom:8px">${prog.done} done · ${prog.total - prog.done} pending</div>
+      <div class="hist-items">
+        ${thisWeekItems.map(l=>histItem(l)).join('')}
+        ${!thisWeekItems.length ? '<div style="color:var(--muted);font-size:13.5px;font-weight:600">None completed yet this week</div>' : ''}
+      </div>
+    </div>
+  </div>`;
+
+  /* ── 2. 8-week completion bar chart ── */
+  const weeks = [];
+  for(let i=7; i>=0; i--){
+    const d  = new Date(ws+'T00:00:00'); d.setDate(d.getDate() - i*7);
+    const wS = d.toISOString().split('T')[0], wE = addDays(wS,6);
+    weeks.push({ wS, done: log.filter(l=>l.completedAt>=wS&&l.completedAt<=wE).length, isCurrent: i===0 });
+  }
+  const maxDone = Math.max(...weeks.map(w=>w.done), 1);
+  const BAR_MAX = 72;
+
+  html += `<div style="padding:0 16px">
+    <div class="stats-hdr-row"><span class="stats-hdr-title">8-Week Completions</span></div>
+    <div class="week-chart">
+      <div class="wc-val-row">${weeks.map(w=>`<div class="wc-val">${w.done||''}</div>`).join('')}</div>
+      <div class="wc-chart-area">${weeks.map(w=>`
+        <div class="wc-bar${w.isCurrent?' wc-current':''}" style="height:${Math.max(3,Math.round(w.done/maxDone*BAR_MAX))}px"></div>`).join('')}
+      </div>
+      <div class="wc-lbl-row">${weeks.map(w=>{
+        const mo = new Date(w.wS+'T00:00:00');
+        return `<div class="wc-lbl">${w.isCurrent ? 'Now' : MONTHS[mo.getMonth()]+' '+mo.getDate()}</div>`;
+      }).join('')}</div>
+    </div>
+  </div>`;
+
+  /* ── 3. Personal stats ── */
+  function buildStats(name){
+    const mine = mineLog(name);
+    return {
+      total:  mine.length,
+      month:  mine.filter(l=>l.completedAt.startsWith(monthStr)).length,
+      streak: calcStreak(name),
+      top:    topTask(name)
+    };
+  }
+  const s1 = buildStats(name1), s2 = buildStats(name2);
+
+  function personCardHTML(name, st){
+    return `<div class="person-card">
+      <div class="pc-name-row">
+        <div class="pc-avatar"><i data-lucide="user-round"></i></div>
+        <div class="pc-name">${name}</div>
+      </div>
+      <div class="pc-big">${st.total}</div>
+      <div class="pc-lbl">All-time done</div>
+      <div class="pc-month-row">
+        <div class="pc-month-val">${st.month}</div>
+        <div class="pc-month-lbl">This month</div>
+      </div>
+      <div class="pc-streak-pill">
+        <i data-lucide="flame"></i>
+        <span>${st.streak}w streak</span>
+      </div>
+      ${st.top ? `<div class="pc-top-task">
+        <div class="pc-top-task-lbl">Top task</div>
+        <div class="pc-top-task-val">${st.top[0]}</div>
+      </div>` : ''}
+    </div>`;
+  }
+
+  html += `<div style="padding:0 16px">
+    <div class="stats-hdr-row"><span class="stats-hdr-title">Personal Stats</span></div>
+    <div class="person-cards">${personCardHTML(name1,s1)}${personCardHTML(name2,s2)}</div>
+  </div>`;
+
+  /* ── 4. Head to head ── */
+  const t1 = s1.total, t2 = s2.total, tot = t1+t2||1;
+  const p1pct = Math.round(t1/tot*100);
+  const m1 = s1.month, m2 = s2.month;
+  const monthLeader = m1>m2 ? name1 : m2>m1 ? name2 : null;
+
+  html += `<div style="padding:0 16px">
+    <div class="stats-hdr-row"><span class="stats-hdr-title">Head to Head</span></div>
+    <div class="h2h-card">
+      <div class="h2h-totals">
+        <div class="h2h-side ${t1>=t2?'leading':''}">
+          <div class="h2h-person">${name1}</div>
+          <div class="h2h-num">${t1}</div>
+        </div>
+        <div class="h2h-vs">VS</div>
+        <div class="h2h-side ${t2>=t1?'leading':''}">
+          <div class="h2h-person">${name2}</div>
+          <div class="h2h-num">${t2}</div>
+        </div>
+      </div>
+      <div class="h2h-progress">
+        <div class="h2h-p1" style="width:${p1pct}%"></div>
+        <div class="h2h-p2" style="width:${100-p1pct}%"></div>
+      </div>
+      <div class="h2h-stats">
+        <div class="h2h-stat">
+          <div class="h2h-stat-v ${m1>m2?'win':''}">${m1}</div>
+          <div class="h2h-stat-mid">This month</div>
+          <div class="h2h-stat-v ${m2>m1?'win':''}">${m2}</div>
+        </div>
+        <div class="h2h-stat">
+          <div class="h2h-stat-v ${s1.streak>s2.streak?'win':''}">${s1.streak}w</div>
+          <div class="h2h-stat-mid">Streak</div>
+          <div class="h2h-stat-v ${s2.streak>s1.streak?'win':''}">${s2.streak}w</div>
+        </div>
+      </div>
+      <div class="h2h-badge" style="${!monthLeader?'background:var(--line);color:var(--ink-soft)':''}">
+        ${monthLeader ? '🏆 '+monthLeader+' leading this month' : 'Tied this month'}
+      </div>
+    </div>
+  </div>`;
+
+  /* ── 5. Difficulty breakdown ── */
+  const diffs = {Easy:0, Medium:0, Hard:0};
+  log.forEach(l => { if(diffs[l.difficulty]!==undefined) diffs[l.difficulty]++; });
+  const maxDiff = Math.max(...Object.values(diffs), 1);
+  const diffColor = {Easy:'var(--green)', Medium:'var(--gold)', Hard:'var(--red)'};
+
+  html += `<div style="padding:0 16px">
+    <div class="stats-hdr-row"><span class="stats-hdr-title">By Difficulty</span></div>
+    <div class="diff-card">
+      ${Object.entries(diffs).map(([d,n]) => `
+      <div class="diff-row">
+        <div class="diff-dot" style="background:${diffColor[d]}"></div>
+        <div class="diff-lbl">${d}</div>
+        <div class="diff-track"><div class="diff-fill" style="width:${Math.round(n/maxDiff*100)}%;background:${diffColor[d]}"></div></div>
+        <div class="diff-cnt">${n}</div>
+      </div>`).join('')}
+    </div>
+  </div>`;
+
+  /* ── 6. Most completed tasks ── */
+  const taskMap = {};
+  log.forEach(l => { taskMap[l.name] = (taskMap[l.name]||0)+1; });
+  const topTasks = Object.entries(taskMap).sort((a,b)=>b[1]-a[1]).slice(0,6);
+
+  if(topTasks.length){
+    html += `<div style="padding:0 16px 8px">
+      <div class="stats-hdr-row"><span class="stats-hdr-title">Most Completed</span></div>
+      <div class="top-list">
+        ${topTasks.map(([name,count],i) => `
+        <div class="top-row">
+          <div class="top-rank">${i+1}</div>
+          <div class="top-name">${name}</div>
+          <div class="top-badge">${count}×</div>
+        </div>`).join('')}
+      </div>
+    </div>`;
+  }
+
+  document.getElementById('panel').innerHTML = html;
+  lucide.createIcons();
+}
+
+/* ════════════════════════════════════════ CALENDAR TAB */
+function renderCalendar(){
+  document.getElementById('hdr').innerHTML = `
+    <div class="flat-hdr">
+      <div><div class="flat-hdr-title">Calendar</div><div class="flat-hdr-sub">${weekLabel(getWeekStart())}</div></div>
+      <div class="flat-hdr-icon"><i data-lucide="calendar-days"></i></div>
+    </div>`;
+
+  const t = todayStr();
+  const horizon = addDays(t, 13); // 2 weeks ahead
+  const relevant = S.tasks.filter(x => x.dueDate >= addDays(t,-3) && x.dueDate <= horizon)
+    .sort((a,b) => a.dueDate.localeCompare(b.dueDate));
+
+  const byDate = {};
+  relevant.forEach(x => { (byDate[x.dueDate] = byDate[x.dueDate]||[]).push(x); });
+
+  const diffColors = {Easy:'var(--green)', Medium:'var(--gold)', Hard:'var(--red)'};
+
+  let html = `<div style="padding:14px 16px 0">
+    <div class="gcal-notice">
+      <i data-lucide="calendar-days"></i>
+      <p>Tasks appear below. Tap <b style="color:var(--sky-deep)">Add to Google Calendar</b> on any task card to add it directly to your calendar.</p>
+    </div>
+  </div>`;
+
+  const allDates = Object.keys(byDate).sort();
+  if(!allDates.length){
+    html += `<div class="empty-state"><i data-lucide="calendar-check"></i><p>No tasks in the next 2 weeks</p></div>`;
+  }
+
+  allDates.forEach(date => {
+    const isToday = date === t;
+    const tasks = byDate[date];
+    html += `<div class="cal-day-card" ${isToday?'style="border:2px solid var(--sky);box-shadow:0 0 0 3px var(--sky-soft)"':''}>
+      <div class="cal-day-lbl">
+        ${isToday?'<div class="cal-today-dot"></div>':''}
+        ${dayLabelFor(date)}${isToday?' · Today':''}
+        &nbsp;<span style="font-weight:600;color:var(--muted)">${shortDateStr(date)}</span>
+      </div>
+      ${tasks.map(x => `<div class="cal-task-row">
+        <div class="cal-dot" style="background:${diffColors[x.difficulty]||'var(--sky)'}"></div>
+        <span class="cal-task-name">${x.name}</span>
+        <span class="cal-badge-who">${x.assignee}</span>
+        <span class="cal-diff" style="background:${diffColors[x.difficulty]+'22'||'var(--sky-soft)'};color:${diffColors[x.difficulty]||'var(--sky-deep)'}">${x.difficulty}</span>
+      </div>`).join('')}
+    </div>`;
+  });
+
+  document.getElementById('panel').innerHTML = html;
+  lucide.createIcons();
+}
+
+/* ════════════════════════════════════════ DATES TAB */
+let searchBias = {lat:-37.8136, lon:144.9631, label:'Melbourne'};
+
+async function resolveSuburb(q){
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 8000);
+  try{
+    // Append state/country context to improve postcode resolution
+    const url = `https://photon.komoot.io/api/?q=${encodeURIComponent(q+' Victoria Australia')}&limit=3&lat=-37.8136&lon=144.9631`;
+    const data = await fetch(url, {signal:controller.signal}).then(r=>r.json());
+    const f = data.features.find(f => {
+      const c = f.properties.country||'';
+      return !c || c==='Australia';
+    });
+    if(f) return {lat:f.geometry.coordinates[1], lon:f.geometry.coordinates[0]};
+  }catch(e){}
+  finally{ clearTimeout(timeoutId); }
+  return null;
+}
+
+function renderDates(){
+  document.getElementById('hdr').innerHTML = `
+    <div class="flat-hdr">
+      <div><div class="flat-hdr-title">Date Night</div><div class="flat-hdr-sub">Find your next spot</div></div>
+      <div class="flat-hdr-icon"><i data-lucide="heart"></i></div>
+    </div>`;
+
+  const toVisit = S.dates.toVisit;
+  const visited = S.dates.visited;
+
+  let html = `
+    <button class="pick-hero" id="pick-btn"><i data-lucide="dice-5"></i>Gamble Your Date</button>
+    <div class="search-wrap-row">
+      <div class="search-box">
+        <i data-lucide="search"></i>
+        <input class="search-input" id="date-search" placeholder="Restaurant, bar, cuisine…" autocomplete="off">
+      </div>
+    </div>
+    <div class="search-loc-bar">
+      <i data-lucide="map-pin"></i>
+      <span class="search-loc-lbl">Near</span>
+      <input class="search-loc-input" id="loc-input" placeholder="Suburb or postcode" value="${searchBias.label}" autocomplete="off">
+    </div>
+    <div id="search-results-panel" class="search-results-panel"></div>`;
+
+  // To Visit
+  html += `<div class="sec-row"><div class="sec-title">To Visit</div><span class="sec-count">${toVisit.length} places</span></div>`;
+  if(!toVisit.length){
+    html += `<div class="empty-state" style="padding:20px 24px"><i data-lucide="map-pin"></i><p>Search for restaurants to build your list</p></div>`;
+  } else {
+    toVisit.forEach(p => { html += toVisitCard(p); });
+  }
+
+  // Visited
+  if(visited.length){
+    html += `<div class="sec-row"><div class="sec-title">Visited</div>
+      <button class="export-btn" id="export-btn" style="width:auto;border:none;background:none;box-shadow:none;padding:0;font-size:13px"><i data-lucide="download"></i>Export</button></div>`;
+    visited.forEach(p => { html += visitedCard(p); });
+  }
+
+  document.getElementById('panel').innerHTML = html;
+  lucide.createIcons();
+
+  // Gamble Your Date — spin wheel
+  document.getElementById('pick-btn').onclick = () => {
+    if(!toVisit.length){ alert('Add some places to visit first!'); return; }
+    openWheelOverlay(toVisit);
+  };
+
+  // Venue search
+  let timer;
+  document.getElementById('date-search').addEventListener('input', e => {
+    clearTimeout(timer);
+    const q = e.target.value.trim();
+    if(q.length < 2){ document.getElementById('search-results-panel').style.display='none'; return; }
+    timer = setTimeout(() => photonSearch(q), 380);
+  });
+
+  // Location bias — suburb or postcode
+  let locTimer;
+  document.getElementById('loc-input').addEventListener('input', e => {
+    clearTimeout(locTimer);
+    const q = e.target.value.trim();
+    if(!q){ searchBias = {lat:-37.8136, lon:144.9631, label:'Melbourne'}; return; }
+    locTimer = setTimeout(async () => {
+      const coords = await resolveSuburb(q);
+      if(coords) searchBias = {...coords, label:q};
+      const sq = document.getElementById('date-search')?.value.trim();
+      if(sq && sq.length >= 2) photonSearch(sq);
+    }, 600);
+  });
+
+  // Mark visited
+  document.querySelectorAll('[data-visit-it]').forEach(btn => btn.addEventListener('click', () => {
+    openRateSheet(btn.dataset.visitIt);
+  }));
+  // Del to-visit
+  document.querySelectorAll('[data-del-place]').forEach(btn => btn.addEventListener('click', () => {
+    const placeId = btn.dataset.delPlace;
+    commitChange(state => { state.dates.toVisit = state.dates.toVisit.filter(p=>p.id!==placeId); });
+    renderDates();
+  }));
+  // Del visited
+  document.querySelectorAll('[data-del-visited]').forEach(btn => btn.addEventListener('click', () => {
+    const placeId = btn.dataset.delVisited;
+    commitChange(state => { state.dates.visited = state.dates.visited.filter(p=>p.id!==placeId); });
+    renderDates();
+  }));
+  // Maps links
+  document.querySelectorAll('[data-maps]').forEach(el => el.addEventListener('click', () => {
+    window.open('https://maps.google.com/?q='+encodeURIComponent(el.dataset.maps), '_blank');
+  }));
+
+  const expBtn = document.getElementById('export-btn');
+  if(expBtn) expBtn.onclick = exportVisited;
+}
+
+function toVisitCard(p){
+  const mapsQ = escapeHtml(`${p.name} ${p.address||''}`.trim());
+  return `<div class="date-card${p.picked?' picked-highlight':''}">
+    ${p.picked ? '<div class="picked-tag"><i data-lucide="star"></i>Next Date!</div>' : ''}
+    <div class="date-top">
+      <div class="date-icon pending-icon"><i data-lucide="utensils"></i></div>
+      <div class="date-info">
+        <div class="date-name">${escapeHtml(p.name)}</div>
+        ${p.address ? `<div class="date-addr-link" data-maps="${mapsQ}"><i data-lucide="map-pin"></i>${escapeHtml(p.address)}</div>` : ''}
+      </div>
+    </div>
+    <div class="date-actions">
+      <button class="date-act visited-act" data-visit-it="${p.id}"><i data-lucide="star"></i>Mark visited</button>
+      <button class="date-act del-act" data-del-place="${p.id}"><i data-lucide="trash-2"></i>Remove</button>
+    </div>
+  </div>`;
+}
+function visitedCard(p){
+  const mapsQ = escapeHtml(`${p.name} ${p.address||''}`.trim());
+  const stars = [1,2,3,4,5].map(n =>
+    `<svg class="${n<=p.rating?'star-filled':'star-empty'}" viewBox="0 0 24 24" stroke="none"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>`
+  ).join('');
+  return `<div class="date-card">
+    <div class="date-top">
+      <div class="date-icon visited-icon"><i data-lucide="check-circle-2"></i></div>
+      <div class="date-info">
+        <div class="date-name">${escapeHtml(p.name)}</div>
+        ${p.address ? `<div class="date-addr-link" data-maps="${mapsQ}"><i data-lucide="map-pin"></i>${escapeHtml(p.address)}</div>` : ''}
+        <div class="date-stars">${stars}</div>
+        ${p.notes ? `<div class="date-notes-text">"${escapeHtml(p.notes)}"</div>` : ''}
+        ${p.visitedAt ? `<div class="date-visited-on">Visited ${new Date(p.visitedAt).toLocaleDateString('en-AU',{day:'numeric',month:'short',year:'numeric'})}</div>` : ''}
+      </div>
+    </div>
+    <div class="date-actions">
+      <button class="date-act del-act" data-del-visited="${p.id}"><i data-lucide="trash-2"></i>Remove</button>
+    </div>
+  </div>`;
+}
+
+async function photonSearch(q){
+  const panel = document.getElementById('search-results-panel'); if(!panel) return;
+  panel.innerHTML = '<div style="padding:14px;text-align:center;color:var(--muted);font-weight:600;font-size:14px">Searching…</div>';
+  panel.style.display = 'block';
+  // Without a timeout, a slow/unreachable API leaves this panel stuck on
+  // "Searching…" forever with no way to tell a failure from "still loading".
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 8000);
+  try{
+    // Bias toward user's chosen suburb/postcode; default is Melbourne CBD
+    const {lat, lon} = searchBias;
+    const url = `https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&limit=16&lat=${lat}&lon=${lon}&zoom=14`;
+    const data = await fetch(url, {signal:controller.signal}).then(r=>r.json());
+    clearTimeout(timeoutId);
+    const places = data.features
+      .filter(f => {
+        if(!f.properties.name) return false;
+        const country = (f.properties.country || '').trim();
+        // Only accept Australian results; if no country set, include tentatively
+        return !country || country === 'Australia';
+      })
+      .slice(0, 8)
+      .map(f=>({
+        name: f.properties.name,
+        address: [f.properties.street, f.properties.housenumber, f.properties.city || f.properties.locality]
+          .filter(Boolean).join(' ').trim() || (f.properties.state || '')
+      }));
+    if(!places.length){
+      panel.innerHTML = '<div style="padding:14px;text-align:center;color:var(--muted);font-weight:600;font-size:14px">No Melbourne results found</div>';
+      return;
+    }
+    panel.innerHTML = places.map((p,i) => `
+      <div class="search-result-row" data-idx="${i}">
+        <i data-lucide="utensils"></i>
+        <div><div class="sr-name">${escapeHtml(p.name)}</div>${p.address?`<div class="sr-addr">${escapeHtml(p.address)}</div>`:''}</div>
+      </div>`).join('');
+    lucide.createIcons();
+    panel.querySelectorAll('.search-result-row').forEach((el,i) => {
+      el.addEventListener('click', () => {
+        const p = places[i];
+        if(!S.dates.toVisit.find(x=>x.name===p.name)){
+          const newId = uid(), addedAt = Date.now();
+          commitChange(state => {
+            if(state.dates.toVisit.find(x=>x.name===p.name)) return; // re-check against fresh state too
+            state.dates.toVisit.push({id:newId, name:p.name, address:p.address, addedAt, picked:false});
+          });
+        }
+        panel.style.display='none';
+        document.getElementById('date-search').value='';
+        renderDates();
+      });
+    });
+  }catch(e){
+    clearTimeout(timeoutId);
+    const timedOut = e.name === 'AbortError';
+    panel.innerHTML = `
+      <div style="padding:14px 14px 10px;text-align:center;color:var(--muted);font-weight:600;font-size:14px">
+        ${timedOut ? "Couldn't reach search — check your connection" : 'No results found'}
+      </div>
+      ${timedOut ? '<button class="export-btn" id="search-retry-btn" style="margin:0 14px 14px;width:calc(100% - 28px)"><i data-lucide="refresh-cw"></i>Try again</button>' : ''}`;
+    if(timedOut){
+      lucide.createIcons();
+      document.getElementById('search-retry-btn')?.addEventListener('click', () => photonSearch(q));
+    }
+  }
+}
+
+/* ── Spinning wheel overlay ──────────────────── */
+function fireConfetti(){
+  const colors = ['#2BC2F2','#F7B500','#28C26E','#FF4757','#A855F7','#ffffff'];
+  const cx = window.innerWidth/2, cy = window.innerHeight/3;
+  for(let i=0;i<44;i++){
+    const el = document.createElement('div');
+    el.className='confetti-dot';
+    const angle = Math.random()*2*Math.PI;
+    const dist  = 80 + Math.random()*220;
+    const size  = 6+Math.random()*7;
+    el.style.cssText=`left:${cx+Math.random()*30-15}px;top:${cy+Math.random()*30-15}px;`+
+      `width:${size}px;height:${size}px;`+
+      `background:${colors[Math.floor(Math.random()*colors.length)]};`+
+      `--tx:${Math.cos(angle)*dist}px;--ty:${Math.sin(angle)*dist+60}px;`+
+      `animation-delay:${Math.random()*0.25}s;border-radius:${Math.random()>.5?'50%':'2px'}`;
+    document.body.appendChild(el);
+    setTimeout(()=>el.remove(), 2000);
+  }
+}
+function openWheelOverlay(places){
+  document.getElementById('wheel-overlay')?.remove();
+  if(!places.length) return;
+  const size = Math.min(window.innerWidth-32, 300);
+  const ov = document.createElement('div');
+  ov.id='wheel-overlay';
+  ov.innerHTML=`
+    <button id="wheel-dismiss-btn">&#x2715;</button>
+    <div class="wh-title">Asking the stars…</div>
+    <div class="wheel-wrap">
+      <div class="wheel-ptr" id="wheel-ptr"></div>
+      <canvas id="wcanvas" width="${size}" height="${size}"></canvas>
+    </div>`;
+  document.body.appendChild(ov);
+
+  const canvas = document.getElementById('wcanvas');
+  const ctx = canvas.getContext('2d');
+  const ptr = document.getElementById('wheel-ptr');
+  const n = places.length;
+  const cx = size/2, cy = size/2, r = size/2 - 4;
+  const seg = (2*Math.PI)/n;
+  const TAU = 2*Math.PI;
+  const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  // hl: index of the winning segment to highlight; glow: 0..1 pulse strength
+  function drawWheel(rot, hl=-1, glow=0){
+    ctx.clearRect(0,0,size,size);
+    for(let i=0;i<n;i++){
+      const sa = rot + i*seg - Math.PI/2;
+      const isWin = i===hl;
+      ctx.save();
+      if(isWin && glow>0){
+        ctx.shadowColor = `rgba(160,128,255,${(0.85*glow).toFixed(2)})`;
+        ctx.shadowBlur = 30*glow;
+      }
+      ctx.beginPath();
+      ctx.moveTo(cx,cy);
+      ctx.arc(cx,cy,r,sa,sa+seg);
+      ctx.closePath();
+      if(isWin){
+        const g = ctx.createLinearGradient(0,0,size,size);
+        g.addColorStop(0,'#8B6CF0'); g.addColorStop(1,'#B69CFF');
+        ctx.fillStyle = g;
+      } else {
+        ctx.fillStyle = i%2===0 ? '#1C2434' : '#242F45';
+      }
+      ctx.fill();
+      ctx.restore();
+      ctx.beginPath();
+      ctx.moveTo(cx,cy);
+      ctx.arc(cx,cy,r,sa,sa+seg);
+      ctx.closePath();
+      ctx.strokeStyle='rgba(255,255,255,.07)';
+      ctx.lineWidth=1;
+      ctx.stroke();
+      // label
+      ctx.save();
+      ctx.translate(cx,cy);
+      ctx.rotate(rot+(i+.5)*seg - Math.PI/2);
+      ctx.textAlign='right';
+      ctx.fillStyle = isWin ? '#F7F4FF' : '#C3D0E2';
+      const fs=Math.max(9,Math.min(13,170/n));
+      ctx.font=`600 ${fs}px -apple-system,BlinkMacSystemFont,sans-serif`;
+      const lbl=places[i].name.length>15?places[i].name.slice(0,13)+'…':places[i].name;
+      ctx.fillText(lbl,r-12,fs/3);
+      ctx.restore();
+    }
+    // outer rim
+    ctx.beginPath();
+    ctx.arc(cx,cy,r,0,TAU);
+    ctx.strokeStyle='rgba(255,255,255,.10)';
+    ctx.lineWidth=2;
+    ctx.stroke();
+    // center hub
+    ctx.beginPath();
+    ctx.arc(cx,cy,15,0,TAU);
+    ctx.fillStyle='#10131C';
+    ctx.fill();
+    ctx.strokeStyle='rgba(182,156,255,.55)';
+    ctx.lineWidth=2;
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(cx,cy,4,0,TAU);
+    ctx.fillStyle='rgba(182,156,255,.9)';
+    ctx.fill();
+  }
+
+  const winIdx = Math.floor(Math.random()*n);
+  // target: winner's mid at top (pointer). mid of seg i = rot + i*seg + seg/2 - PI/2 = 0
+  // -> rot = -i*seg - seg/2 + 2PI*k  (add 5 extra full rotations)
+  const finalRot = 5*TAU - winIdx*seg - seg/2;
+  // Overshoot past the pointer, then wobble back — a wheel with weight,
+  // not a linear spinner. Capped so it can't visually land on a neighbor.
+  const OVER = reduceMotion ? 0 : Math.min(seg*0.22, 0.15);
+  const SPIN_MS   = reduceMotion ? 500 : 3400;
+  const WOBBLE_MS = reduceMotion ? 0 : 800;
+  const PULSE_MS  = reduceMotion ? 250 : 750;
+
+  // Pointer flick every time a segment boundary passes underneath.
+  let lastIdx = -1, lastFlick = 0;
+  function tickPointer(rot, ts){
+    const idx = Math.floor((((-rot) % TAU) + TAU) % TAU / seg);
+    if(idx !== lastIdx){
+      lastIdx = idx;
+      if(!reduceMotion && ts - lastFlick > 50){
+        lastFlick = ts;
+        ptr.style.transition = 'none';
+        ptr.style.transform = 'translateX(-50%) rotate(-15deg)';
+        requestAnimationFrame(()=>{
+          ptr.style.transition = 'transform 130ms cubic-bezier(.2,.8,.3,1.5)';
+          ptr.style.transform = 'translateX(-50%) rotate(0deg)';
+        });
+      }
+    }
+  }
+
+  function easeOut(t){ return 1-Math.pow(1-t,3.1); }
+  let startTime = null;
+
+  function animate(ts){
+    if(!startTime) startTime = ts;
+    const el = ts - startTime;
+    if(el <= SPIN_MS){
+      const rot = easeOut(el/SPIN_MS)*(finalRot + OVER);
+      drawWheel(rot);
+      tickPointer(rot, ts);
+      requestAnimationFrame(animate);
+    } else if(el <= SPIN_MS + WOBBLE_MS){
+      // damped swing around the true landing point
+      const q = (el - SPIN_MS)/WOBBLE_MS;
+      const rot = finalRot + OVER*Math.cos(Math.PI*1.9*q)*Math.exp(-3.4*q);
+      drawWheel(rot);
+      tickPointer(rot, ts);
+      requestAnimationFrame(animate);
+    } else if(el <= SPIN_MS + WOBBLE_MS + PULSE_MS){
+      // landed: pointer springs once, winning segment pulses violet
+      if(!ptr.classList.contains('land')) ptr.classList.add('land');
+      const q = (el - SPIN_MS - WOBBLE_MS)/PULSE_MS;
+      const glow = Math.abs(Math.sin(Math.PI*2*q)) * (1-q*0.35);
+      drawWheel(finalRot, winIdx, Math.max(glow, 0.25));
+      requestAnimationFrame(animate);
+    } else {
+      drawWheel(finalRot, winIdx, 0.55);
+      spinDone(places[winIdx]);
+    }
+  }
+  drawWheel(0);
+  setTimeout(()=>requestAnimationFrame(animate), 250);
+
+  document.getElementById('wheel-dismiss-btn').onclick=()=>{ ov.remove(); renderDates(); };
+
+  function spinDone(winner){
+    fireConfetti();
+    commitChange(state => {
+      state.dates.toVisit.forEach(p=>p.picked=false);
+      const wi = state.dates.toVisit.findIndex(p=>p.id===winner.id);
+      if(wi>0){ const [w]=state.dates.toVisit.splice(wi,1); state.dates.toVisit.unshift(w); }
+      if(state.dates.toVisit.length) state.dates.toVisit[0].picked=true;
+    });
+    setTimeout(()=>{
+      ov.remove();
+      renderDates();
+      const mapsQ=`${winner.name} ${winner.address||''}`.trim();
+      const mapsUrl=`https://maps.google.com/?q=${encodeURIComponent(mapsQ)}`;
+      openModal(`
+        <div class="mbox-icon luck-pulse" style="background:var(--luck-soft)"><i data-lucide="star" style="color:var(--luck)"></i></div>
+        <div class="mbox-title">${escapeHtml(winner.name)}</div>
+        <div style="text-align:center;margin-bottom:14px"><span style="display:inline-flex;align-items:center;gap:5px;background:var(--luck-soft);color:var(--luck);border-radius:var(--r-pill);padding:4px 12px;font-size:12px;font-weight:600"><svg viewBox="0 0 24 24" width="13" height="13" fill="var(--luck)" stroke="none"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>Next Date!</span></div>
+        ${winner.address?`<div class="mbox-addr" data-maps="${escapeHtml(mapsQ)}"><i data-lucide="map-pin"></i>${escapeHtml(winner.address)}</div>`:''}
+        <div class="mbox-btns">
+          <button class="mbox-btn" id="wr-again-modal"><i data-lucide="shuffle"></i>Pick Again</button>
+          <button class="mbox-btn primary-btn" id="wr-go-modal"><i data-lucide="map-pin"></i>Let's go!</button>
+        </div>`,
+      ()=>{
+        document.getElementById('wr-go-modal').onclick=()=>{ window.open(mapsUrl,'_blank'); closeModal(); };
+        document.getElementById('wr-again-modal').onclick=()=>{ closeModal(); openWheelOverlay(S.dates.toVisit); };
+        document.querySelectorAll('[data-maps]').forEach(el=>el.addEventListener('click',()=>
+          window.open('https://maps.google.com/?q='+encodeURIComponent(el.dataset.maps),'_blank')
+        ));
+      });
+    }, 700);
+  }
+}
+function showPickModal(p){
+  const mapsQ = `${p.name} ${p.address||''}`.trim();
+  const mapsUrl = `https://maps.google.com/?q=${encodeURIComponent(mapsQ)}`;
+  openModal(`
+    <div class="mbox-icon"><i data-lucide="heart"></i></div>
+    <div class="mbox-title">${p.name}</div>
+    <div class="mbox-sub">Next Date!</div>
+    ${p.address ? `<div class="mbox-addr" data-maps="${mapsQ}"><i data-lucide="map-pin"></i>${p.address}</div>` : ''}
+    <div class="mbox-btns">
+      <button class="mbox-btn" id="pick-again"><i data-lucide="shuffle"></i>Pick Again</button>
+      <button class="mbox-btn primary-btn" id="lets-go"><i data-lucide="map-pin"></i>Let's go!</button>
+    </div>`,
+  ()=>{
+    document.getElementById('lets-go').onclick = () => { window.open(mapsUrl,'_blank'); closeModal(); };
+    document.getElementById('pick-again').onclick = () => {
+      closeModal();
+      const others = S.dates.toVisit.filter(x=>x.id!==p.id);
+      if(!others.length){ alert('Only one place in your list!'); return; }
+      const next = others[Math.floor(Math.random()*others.length)];
+      S.dates.toVisit.forEach(x=>x.picked=false);
+      next.picked=true;
+      const idx = S.dates.toVisit.findIndex(x=>x.id===next.id);
+      if(idx>0){ S.dates.toVisit.splice(idx,1); S.dates.toVisit.unshift(next); }
+      save(); showPickModal(next);
+    };
+    document.querySelectorAll('[data-maps]').forEach(el => el.addEventListener('click', ()=>
+      window.open('https://maps.google.com/?q='+encodeURIComponent(el.dataset.maps),'_blank')
+    ));
+  });
+}
+
+function openRateSheet(placeId){
+  const place = S.dates.toVisit.find(p=>p.id===placeId); if(!place) return;
+  let rating = 0;
+  openSheet(`
+    <div class="grabber"></div>
+    <div class="sheet-head">
+      <div class="sheet-title">Rate visit</div>
+      <button class="sheet-close" id="sh-close"><i data-lucide="x"></i></button>
+    </div>
+    <div style="text-align:center;font-family:var(--disp);font-size:18px;font-weight:600;color:var(--ink);padding:4px 0">${escapeHtml(place.name)}</div>
+    <div class="star-row">${[1,2,3,4,5].map(n=>`<button class="star-btn" data-star="${n}"><svg viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" fill="none"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg></button>`).join('')}</div>
+    <textarea class="modal-notes" id="visit-notes" placeholder="How was it? (optional)…"></textarea>
+    <button class="btn-primary" id="save-visit"><i data-lucide="check"></i>Save</button>`,
+  ()=>{
+    document.getElementById('sh-close').onclick = closeSheet;
+    document.querySelectorAll('[data-star]').forEach(btn => btn.addEventListener('click', ()=>{
+      rating = +btn.dataset.star;
+      document.querySelectorAll('[data-star]').forEach(b=>{
+        b.className='star-btn'+(+b.dataset.star<=rating?' on':'');
+      });
+    }));
+    document.getElementById('save-visit').onclick = ()=>{
+      const notes = document.getElementById('visit-notes').value.trim();
+      const newId = uid(), visitedAt = Date.now();
+      commitChange(state => {
+        const p = state.dates.toVisit.find(p=>p.id===placeId);
+        state.dates.toVisit = state.dates.toVisit.filter(p=>p.id!==placeId);
+        state.dates.visited.unshift({
+          id:newId, name:p?p.name:place.name, address:p?p.address:place.address,
+          rating, notes, visitedAt
+        });
+      });
+      closeSheet(); renderDates();
+      if(S.dates.toVisit.length){
+        setTimeout(()=>{
+          openModal(`
+            <div class="mbox-icon"><i data-lucide="shuffle"></i></div>
+            <div class="mbox-title">Ready to spin again?</div>
+            <div class="mbox-sub">There are ${S.dates.toVisit.length} places left on your list.</div>
+            <div class="mbox-btns">
+              <button class="mbox-btn" id="gamble-no"><i data-lucide="x"></i>Not now</button>
+              <button class="mbox-btn primary-btn" id="gamble-yes"><i data-lucide="shuffle"></i>Gamble Again</button>
+            </div>`,
+          ()=>{
+            document.getElementById('gamble-no').onclick = closeModal;
+            document.getElementById('gamble-yes').onclick = ()=>{ closeModal(); openWheelOverlay(S.dates.toVisit); };
+          });
+        }, 300);
+      }
+    };
+  });
+}
+
+function exportVisited(){
+  if(typeof XLSX==='undefined'){ alert('SheetJS not loaded'); return; }
+  const rows = S.dates.visited.map(p=>({
+    Name:p.name, Address:p.address||'', Rating:p.rating,
+    Notes:p.notes||'', Visited:p.visitedAt?new Date(p.visitedAt).toLocaleDateString():''
+  }));
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), 'Visited');
+  XLSX.writeFile(wb,'date-nights.xlsx');
+}
+
+/* ════════════════════════════════════════ SETTINGS TAB */
+function renderSettings(){
+  document.getElementById('hdr').innerHTML = `
+    <div class="flat-hdr">
+      <div><div class="flat-hdr-title">Settings</div><div class="flat-hdr-sub">${escapeHtml(S.name1)} &amp; ${escapeHtml(S.name2)}</div></div>
+      <div class="flat-hdr-icon"><i data-lucide="settings"></i></div>
+    </div>`;
+  document.getElementById('panel').innerHTML = `
+    <div style="padding-top:14px"></div>
+    <div class="settings-card">
+      <div class="srow" id="s-edit-names">
+        <div class="srow-icon"><i data-lucide="users"></i></div>
+        <div class="srow-info"><div class="srow-label">Edit names</div><div class="srow-sub">${escapeHtml(S.name1)} &amp; ${escapeHtml(S.name2)}</div></div>
+        <div class="srow-chev"><i data-lucide="chevron-right"></i></div>
+      </div>
+      <div class="srow" id="s-edit-role">
+        <div class="srow-icon"><i data-lucide="smartphone"></i></div>
+        <div class="srow-info"><div class="srow-label">This device is</div><div class="srow-sub">${escapeHtml(myName())}</div></div>
+        <div class="srow-chev"><i data-lucide="chevron-right"></i></div>
+      </div>
+      <div class="srow" id="s-appearance">
+        <div class="srow-icon"><i data-lucide="moon"></i></div>
+        <div class="srow-info"><div class="srow-label">Appearance</div><div class="srow-sub">${loadThemePref()==='dark' ? 'Dark' : 'Light'}</div></div>
+        <div class="srow-chev"><i data-lucide="chevron-right"></i></div>
+      </div>
+    </div>
+    <div class="settings-card">
+      <div class="srow danger" id="s-delete-all">
+        <div class="srow-icon red-icon"><i data-lucide="trash-2"></i></div>
+        <div class="srow-info"><div class="srow-label">Delete all data</div><div class="srow-sub">Wipes everything permanently</div></div>
+        <div class="srow-chev"><i data-lucide="chevron-right"></i></div>
+      </div>
+    </div>
+    <div style="padding:16px 20px;color:var(--muted);font-size:13px;font-weight:600;text-align:center">Made for ${escapeHtml(S.name1)} &amp; ${escapeHtml(S.name2)} ♥</div>`;
+  lucide.createIcons();
+
+  document.getElementById('s-edit-names').onclick = ()=>{
+    openSheet(`
+      <div class="grabber"></div>
+      <div class="sheet-head"><div class="sheet-title">Edit names</div>
+        <button class="sheet-close" id="sh-close"><i data-lucide="x"></i></button></div>
+      <div class="sheet-field"><i data-lucide="user" class="ic"></i>
+        <input id="s-n1" type="text" value="${escapeHtml(S.name1)}" placeholder="Your name"></div>
+      <div class="sheet-field"><i data-lucide="users" class="ic"></i>
+        <input id="s-n2" type="text" value="${escapeHtml(S.name2)}" placeholder="Partner's name"></div>
+      <button class="btn-primary" id="save-names"><i data-lucide="check"></i>Save</button>`,
+    ()=>{
+      document.getElementById('sh-close').onclick = closeSheet;
+      document.getElementById('save-names').onclick = ()=>{
+        const n1=document.getElementById('s-n1').value.trim();
+        const n2=document.getElementById('s-n2').value.trim();
+        commitChange(state => {
+          // Renaming a partner would otherwise orphan every task/history
+          // entry already assigned to their old name — migrate those values
+          // in the same change instead of leaving them stuck on the old name.
+          const oldName1 = state.name1, oldName2 = state.name2;
+          const changed1 = n1 && n1 !== oldName1;
+          const changed2 = n2 && n2 !== oldName2;
+          if(changed1 || changed2){
+            const remap = a => a===oldName1&&changed1 ? n1 : a===oldName2&&changed2 ? n2 : a;
+            state.tasks.forEach(t => { t.assignee = remap(t.assignee); });
+            state.completedLog.forEach(l => { l.assignee = remap(l.assignee); });
+          }
+          if(changed1) state.name1 = n1;
+          if(changed2) state.name2 = n2;
+        });
+        closeSheet(); renderSettings();
+      };
+    });
+  };
+  document.getElementById('s-edit-role').onclick = ()=>{
+    openSheet(`
+      <div class="grabber"></div>
+      <div class="sheet-head"><div class="sheet-title">This device is</div>
+        <button class="sheet-close" id="sh-close"><i data-lucide="x"></i></button></div>
+      <div class="chips">
+        <div class="chip ${myRole!=='name2'?'sel':''}" data-role="name1"><i data-lucide="user"></i>&nbsp;${escapeHtml(S.name1)}</div>
+        <div class="chip ${myRole==='name2'?'sel':''}" data-role="name2"><i data-lucide="user"></i>&nbsp;${escapeHtml(S.name2)}</div>
+      </div>`,
+    ()=>{
+      document.getElementById('sh-close').onclick = closeSheet;
+      document.querySelectorAll('[data-role]').forEach(el => el.addEventListener('click', ()=>{
+        myRole = el.dataset.role; saveRole(myRole);
+        closeSheet(); renderSettings();
+      }));
+    });
+  };
+  document.getElementById('s-appearance').onclick = ()=>{
+    const cur = loadThemePref();
+    openSheet(`
+      <div class="grabber"></div>
+      <div class="sheet-head"><div class="sheet-title">Appearance</div>
+        <button class="sheet-close" id="sh-close"><i data-lucide="x"></i></button></div>
+      <div class="toggle-sub" style="margin:-6px 2px 0">Light is the default. Dark is manual-only — it never switches on by itself.</div>
+      <div class="chips">
+        <div class="chip ${cur==='light'?'sel':''}" data-theme-pick="light"><i data-lucide="sun"></i>&nbsp;Light</div>
+        <div class="chip ${cur==='dark'?'sel':''}" data-theme-pick="dark"><i data-lucide="moon"></i>&nbsp;Dark</div>
+      </div>`,
+    ()=>{
+      document.getElementById('sh-close').onclick = closeSheet;
+      document.querySelectorAll('[data-theme-pick]').forEach(el => el.addEventListener('click', ()=>{
+        saveThemePref(el.dataset.themePick);
+        applyTheme();
+        closeSheet(); renderSettings();
+      }));
+    });
+  };
+  document.getElementById('s-delete-all').onclick = ()=>{
+    if(!confirm('Delete ALL data? This cannot be undone.')) return;
+    HOUSEHOLD.delete(); location.reload();
+  };
+}
+
+/* ════════════════════════════════════════ ROOMS TAB */
+function renderRooms(){
+  currentRoomDetail = null;
+  document.getElementById('hdr').innerHTML = `
+    <div class="flat-hdr">
+      <div><div class="flat-hdr-title">Rooms</div><div class="flat-hdr-sub">Tasks by area</div></div>
+      <div class="flat-hdr-icon"><i data-lucide="layout-grid"></i></div>
+    </div>`;
+  let html = '<div class="room-grid">';
+  ROOM_CHIPS.forEach(room => {
+    const count = S.tasks.filter(t=>t.room===room.name).length;
+    html += `<div class="room-tile" data-room-nav="${room.name}">
+      <div class="room-badge ${count===0?'zero':''}">${count}</div>
+      <div class="room-tile-icon"><i data-lucide="${room.icon}"></i></div>
+      <div class="room-tile-name">${room.name}</div>
+    </div>`;
+  });
+  html += '</div>';
+  document.getElementById('panel').innerHTML = html;
+  lucide.createIcons();
+  document.querySelectorAll('[data-room-nav]').forEach(tile=>{
+    tile.addEventListener('click',()=>renderRoomDetail(tile.dataset.roomNav));
+  });
+}
+function renderRoomDetail(roomName){
+  currentRoomDetail = roomName;
+  const room = ROOM_CHIPS.find(r=>r.name===roomName);
+  const tasks = S.tasks.filter(t=>t.room===roomName).sort((a,b)=>a.dueDate.localeCompare(b.dueDate));
+  const t = todayStr();
+  let html = `<button class="room-back" id="room-back-btn"><i data-lucide="arrow-left"></i>Rooms</button>`;
+  if(!tasks.length){
+    html += `<div class="empty-state"><i data-lucide="${room?room.icon:'layout-grid'}"></i><p>No tasks in ${roomName}</p></div>`;
+  } else {
+    const overdue   = tasks.filter(x=>x.dueDate<t);
+    const upcoming  = tasks.filter(x=>x.dueDate>=t);
+    if(overdue.length){
+      html += `<div class="day-header"><div class="day-label" style="color:var(--red)">Overdue</div></div>`;
+      overdue.forEach(x=>{html+=taskCardHTML(x);});
+    }
+    upcoming.forEach(x=>{html+=taskCardHTML(x);});
+  }
+  document.getElementById('panel').innerHTML = html;
+  lucide.createIcons();
+  document.getElementById('room-back-btn').onclick=()=>renderRooms();
+  document.querySelectorAll('[data-done]').forEach(btn=>btn.addEventListener('click',e=>{
+    e.stopPropagation(); completeTask(btn.dataset.done);
+  }));
+  document.querySelectorAll('[data-skip]').forEach(btn=>btn.addEventListener('click',e=>{
+    e.stopPropagation(); skipTask(btn.dataset.skip);
+  }));
+  document.querySelectorAll('[data-task-card]').forEach(card=>card.addEventListener('click',e=>{
+    if(e.target.closest('button,a')) return;
+    openTaskDetail(card.dataset.taskCard);
+  }));
+}
+
+/* ════════════════════════════════════════ SHEET / MODAL HELPERS */
+function openSheet(html, cb){
+  document.getElementById('sheet').innerHTML = html;
+  document.getElementById('overlay').classList.remove('hidden');
+  lucide.createIcons();
+  if(cb) cb();
+  document.getElementById('dim').onclick = closeSheet;
+}
+function closeSheet(){
+  document.getElementById('overlay').classList.add('hidden');
+  document.getElementById('sheet').innerHTML='';
+}
+function openModal(html, cb){
+  document.getElementById('mbox').innerHTML = html;
+  document.getElementById('modal-layer').classList.remove('hidden');
+  lucide.createIcons();
+  if(cb) cb();
+  document.getElementById('mdim').onclick = closeModal;
+}
+function closeModal(){
+  document.getElementById('modal-layer').classList.add('hidden');
+}
+
+/* ════════════════════════════════════════ MEAL PREP TAB */
+const MEAL_STYLES = [
+  {id:'mix',     name:'Mix-and-match',        desc:'Components you assemble differently each night', icon:'salad'},
+  {id:'batch',   name:'Batch cooking',        desc:'One meal, multiple nights',                      icon:'soup'},
+  {id:'freezer', name:'Freezer prep',         desc:'Longer horizon — weeks, not days',               icon:'snowflake'},
+  {id:'twice',   name:'Cook once, eat twice', desc:'One dish deliberately morphed across the week',  icon:'repeat-2'},
+];
+// Deployed meal-prep-proxy Worker (Workers AI). After `npx wrangler deploy`
+// prints the URL, paste it here.
+const MEAL_PROXY_URL = 'https://meal-prep-proxy.zacfisherman.workers.dev';
+
+// Seed protein set — shown when no saved recipes exist yet. Once recipes
+// carry their own protein tags, the picker becomes the union of these seeds
+// and every distinct tag across the cookbook (deduplicated by normalized key).
+const PROTEIN_SEEDS = ['Chicken thigh','Chicken breast','Beef mince','Pork shoulder','Salmon','White fish','Prawns','Tofu','Eggs'];
+const PROTEIN_CAP = 3;
+let mealStylePicking = false; // true while the style-cards view is open over an existing choice
+let mealResults = null;       // {loading, error, suggested:[]} — transient, per-device
+
+// Canonical protein key: lowercase, collapsed whitespace, last word
+// singularized — "Lentils"/"lentil" and "chicken thighs"/"Chicken thigh"
+// collapse to one option. Mirrors the Worker's normalizer exactly.
+function normalizeProtein(s){
+  let t = (s || '').toLowerCase().replace(/\s+/g, ' ').trim();
+  if(t.length > 3 && t.endsWith('s') && !t.endsWith('ss')) t = t.slice(0, -1);
+  return t;
+}
+// Adaptive picker options: seeds first (fixed order), then any distinct
+// recipe-derived tags alphabetically, then any currently-selected tag whose
+// recipe has since been deleted (so it stays visible and deselectable).
+function proteinOptions(){
+  const seen = new Map();
+  PROTEIN_SEEDS.forEach(p => seen.set(normalizeProtein(p), p));
+  const extras = [];
+  mealRecipes.forEach(r => {
+    const key = normalizeProtein(r.protein || '');
+    if(key && !seen.has(key)){ seen.set(key, r.protein.trim()); extras.push(r.protein.trim()); }
+  });
+  extras.sort((a,b) => a.localeCompare(b));
+  const orphans = [];
+  (S.mealPrep?.proteins || []).forEach(p => {
+    const key = normalizeProtein(p);
+    if(key && !seen.has(key)){ seen.set(key, p); orphans.push(p); }
+  });
+  return [...PROTEIN_SEEDS, ...extras, ...orphans];
+}
+
+/* ── saved recipes: households/home/recipes subcollection ── */
+const RECIPES = HOUSEHOLD.collection('recipes');
+let mealRecipes = [];
+let recipesSyncStarted = false;
+function startRecipesSync(){
+  if(recipesSyncStarted) return;
+  recipesSyncStarted = true;
+  RECIPES.onSnapshot(qs => {
+    mealRecipes = qs.docs.map(d => ({id: d.id, ...d.data()}));
+    mealRecipes.sort((a,b) => (b.createdAt||0) - (a.createdAt||0));
+    if(currentTab === 'meals') renderMeals();
+  }, err => console.error('Recipes sync error:', err));
+}
+function savedMatches(mp){
+  const keys = mp.proteins.map(normalizeProtein);
+  return mealRecipes.filter(r =>
+    keys.includes(normalizeProtein(r.protein || '')) &&
+    (!Array.isArray(r.styles) || !r.styles.length || r.styles.includes(mp.style))
+  );
+}
+
+function renderMeals(){
+  const mp = S.mealPrep || {style:null, proteins:[], activeRecipeIds:[], grocery:[]};
+  const inGrocery = mealSubView === 'grocery';
+  document.getElementById('hdr').innerHTML = `
+    <div class="flat-hdr">
+      <div><div class="flat-hdr-title">Meal Prep</div>
+        <div class="flat-hdr-sub">${inGrocery ? (mp.grocery.length ? `${mp.grocery.filter(g=>g.checked).length} of ${mp.grocery.length} gotten` : 'This week\'s groceries') : "This week's cooking plan"}</div></div>
+      <div class="flat-hdr-icon"><i data-lucide="chef-hat"></i></div>
+    </div>`;
+
+  let html = `<div class="tasks-view-row">
+    <div class="tasks-view-chips">
+      <button class="tv-chip${!inGrocery?' sel':''}" id="mv-recipes"><i data-lucide="book-open"></i>Recipes</button>
+      <button class="tv-chip${inGrocery?' sel':''}" id="mv-grocery"><i data-lucide="shopping-basket"></i>Grocery</button>
+    </div>
+    <button class="paste-pill" id="mv-paste"><i data-lucide="clipboard-paste"></i>Paste recipe</button>
+  </div>`;
+
+  if(inGrocery){
+    html += _groceryViewHTML(mp);
+  } else {
+    html += _recipesViewHTML(mp);
+  }
+  document.getElementById('panel').innerHTML = html;
+  lucide.createIcons();
+
+  document.getElementById('mv-recipes').onclick = ()=>{ mealSubView='recipes'; renderMeals(); };
+  document.getElementById('mv-grocery').onclick = ()=>{ mealSubView='grocery'; renderMeals(); };
+  document.getElementById('mv-paste').onclick = openPasteRecipeSheet;
+  _bindMealHandlers(mp);
+  if(inGrocery) _bindGroceryHandlers(mp);
+}
+
+function _recipesViewHTML(mp){
+  if(!mp.style || mealStylePicking){
+    return `<div class="seg-lbl" style="margin:18px 0 10px 22px">How are we prepping this week?</div>` +
+      MEAL_STYLES.map(s => `
+        <button class="style-card${mp.style===s.id?' sel':''}" data-style="${s.id}">
+          <div class="style-ic"><i data-lucide="${s.icon}"></i></div>
+          <div>
+            <div class="style-name">${s.name}</div>
+            <div class="style-desc">${s.desc}</div>
+          </div>
+        </button>`).join('') + _cookbookRowHTML();
+  }
+  const style = MEAL_STYLES.find(s => s.id === mp.style) || MEAL_STYLES[0];
+  const count = mp.proteins.length;
+  return `
+    <button class="style-current" id="mp-change-style">
+      <div class="style-ic"><i data-lucide="${style.icon}"></i></div>
+      <div class="n">${style.name}</div>
+      <div class="chg">Change<i data-lucide="chevron-right" style="width:13px;height:13px"></i></div>
+    </button>
+    <div class="seg-lbl" style="margin:20px 22px 10px;display:flex;justify-content:space-between">
+      <span>Proteins</span>
+      <span style="color:var(--sky-deep);letter-spacing:.02em;text-transform:none">${count} of ${PROTEIN_CAP}${count>=PROTEIN_CAP?' — cap reached':''}</span>
+    </div>
+    <div class="pk-row">
+      ${proteinOptions().map(p => {
+        const on = mp.proteins.includes(p);
+        const dis = !on && count >= PROTEIN_CAP;
+        return `<button class="pk-chip${on?' on':''}${dis?' dis':''}" data-protein="${escapeHtml(p)}">${escapeHtml(p)}</button>`;
+      }).join('')}
+    </div>
+    <button class="btn-primary mp-cta" id="mp-find" ${count ? '' : 'disabled'}>Find recipes <i data-lucide="search"></i></button>
+    ${mealResults ? _resultsInlineHTML(mp) : `<div style="text-align:center;font-size:11.5px;color:var(--muted);padding:0 32px 8px">Veg stays wide open — recipes bring their own variety.</div>`}
+    ${_cookbookRowHTML()}`;
+}
+function _cookbookRowHTML(){
+  return `<button class="style-current ckbk" id="mp-cookbook">
+    <div class="style-ic"><i data-lucide="book-open"></i></div>
+    <div class="n">Saved recipes</div>
+    <div class="chg">${mealRecipes.length}<i data-lucide="chevron-right" style="width:13px;height:13px"></i></div>
+  </button>`;
+}
+
+/* ── results: saved first, then AI suggestions ── */
+function _recipeCardHTML(r, kind, inWeek, ref){
+  const meta = [r.serves ? `Serves ${r.serves}` : '', r.minutes ? `${r.minutes} min` : '', kind==='sugg' ? 'AI suggestion' : '']
+    .filter(Boolean).join(' · ');
+  return `<div class="rc-card${inWeek?' active':''}">
+    <span class="rc-tag ${kind}">${kind==='saved' ? 'Saved' : 'Suggested'}</span>
+    <div class="rc-name">${escapeHtml(r.name)}</div>
+    ${meta ? `<div class="rc-meta">${escapeHtml(meta)}</div>` : ''}
+    ${r.summary ? `<div class="rc-sum">${escapeHtml(r.summary)}</div>` : ''}
+    <div class="rc-chips"><span class="rc-chip p">${escapeHtml(r.protein || '?')}</span></div>
+    <div class="rc-btns">
+      <button class="rc-btn" data-view-${kind}="${ref}">View</button>
+      <button class="rc-btn ${inWeek ? 'added' : 'add'}" data-week-${kind}="${ref}">${inWeek ? '✓ In this week' : '+ Add to week'}</button>
+    </div>
+  </div>`;
+}
+function _resultsInlineHTML(mp){
+  const saved = savedMatches(mp);
+  const weekCount = (mp.activeRecipeIds || []).length;
+  let html = `<div id="mp-results">
+    <div class="weekbar" style="margin-top:16px">
+      <span><b>${weekCount} recipe${weekCount===1?'':'s'}</b> in this week's set</span>
+      ${weekCount ? '<button class="wb-clear" id="mp-clear">Clear</button>' : ''}
+    </div>
+    <div class="seg-lbl" style="margin:18px 22px 8px">From your saved recipes</div>`;
+  if(saved.length){
+    saved.forEach(r => { html += _recipeCardHTML(r, 'saved', (mp.activeRecipeIds||[]).includes(r.id), r.id); });
+    if(!mealResults.aiRequested){
+      html += `<button class="rc-btn add" id="mp-more-ai" style="margin:12px 16px 0;width:calc(100% - 32px)"><i data-lucide="sparkles"></i>&nbsp;Get AI suggestions too</button>`;
+    }
+  } else if(!mealResults.aiRequested){
+    // No saved match: offer the choice — never burn an AI call automatically.
+    html += `<div class="rc-none" style="border-style:solid">
+      No saved recipe matches this combo. What would you like to do?
+      <div style="display:flex;gap:8px;margin-top:12px;width:100%">
+        <button class="rc-btn" id="mp-paste-instead" style="flex:1">Find one &amp; paste it</button>
+        <button class="rc-btn add" id="mp-ai-go" style="flex:1"><i data-lucide="sparkles"></i>&nbsp;AI suggestion</button>
+      </div>
+    </div>`;
+  }
+  if(mealResults.aiRequested){
+    html += `<div class="seg-lbl" style="margin:20px 22px 8px">Suggested for this combo</div>`;
+    if(mealResults.loading){
+      html += `<div class="rc-none loading-row"><span class="ld-dot"></span><span class="ld-dot"></span><span class="ld-dot"></span>&nbsp;Asking the kitchen…</div>`;
+    } else if(mealResults.error){
+      html += `<div class="rc-none err">
+        ${escapeHtml(mealResults.error)}
+        <button class="rc-btn add" id="mp-retry" style="margin-top:10px;max-width:180px">Try again</button>
+      </div>`;
+    } else if(!mealResults.suggested.length){
+      html += `<div class="rc-none">Nothing usable came back — try again or tweak the proteins.</div>`;
+    } else {
+      mealResults.suggested.forEach((r, i) => { html += _recipeCardHTML(r, 'sugg', false, String(i)); });
+    }
+  }
+  return html + `</div>`;
+}
+async function fetchSuggestions(mp){
+  if(MEAL_PROXY_URL.includes('YOUR-SUBDOMAIN')){
+    mealResults = {aiRequested:true, loading:false, suggested:[], error:'The meal-prep-proxy Worker is not deployed yet — run wrangler deploy and set MEAL_PROXY_URL in app.js.'};
+    if(currentTab==='meals' && mealSubView==='recipes') renderMeals();
+    return;
+  }
+  const styleName = (MEAL_STYLES.find(s => s.id === mp.style) || {}).name || 'meal prep';
+  try{
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 45000); // live 70b suggest runs measured up to ~24s
+    const res = await fetch(MEAL_PROXY_URL + '/suggest', {
+      method:'POST', headers:{'Content-Type':'application/json'}, signal:controller.signal,
+      body: JSON.stringify({styleName, proteins: mp.proteins, existingRecipeNames: mealRecipes.map(r => r.name)})
+    });
+    clearTimeout(timeoutId);
+    const data = await res.json();
+    if(!res.ok) throw new Error(data.error || ('HTTP ' + res.status));
+    mealResults = {aiRequested:true, loading:false, error:null, suggested:(data.recipes||[])};
+  }catch(e){
+    mealResults = {aiRequested:true, loading:false, suggested:[], error: e.name==='AbortError' ? 'Suggestion request timed out — try again' : e.message};
+  }
+  if(currentTab==='meals' && mealSubView==='recipes') renderMeals();
+}
+
+/* ── recipe detail viewer ── */
+function fmtQty(q){ return q==null ? '' : String(q).replace(/\.0$/,''); }
+function fmtIngredient(i){ return [fmtQty(i.qty), i.unit||'', i.item].filter(Boolean).join(' '); }
+function openRecipeView(r){
+  const meta = [r.serves ? `Serves ${r.serves}` : '', r.minutes ? `${r.minutes} min` : ''].filter(Boolean).join(' · ');
+  openSheet(`
+    <div class="grabber"></div>
+    <div class="sheet-head">
+      <div class="sheet-title">${escapeHtml(r.name)}</div>
+      <button class="sheet-close" id="sh-close"><i data-lucide="x"></i></button>
+    </div>
+    <div class="rc-chips" style="margin-top:-6px"><span class="rc-chip p">${escapeHtml(r.protein||'?')}</span>${meta?`<span class="rc-chip">${escapeHtml(meta)}</span>`:''}</div>
+    <div class="seg-lbl">Ingredients</div>
+    <div class="rv-list">${(r.ingredients||[]).map(i => `<div class="rv-ing">${escapeHtml(fmtIngredient(i))}</div>`).join('') || '<div class="rv-ing" style="color:var(--muted)">None listed</div>'}</div>
+    <div class="seg-lbl">Steps</div>
+    <div class="rv-list">${(r.steps||[]).map((s,i) => `<div class="rv-step"><b>${i+1}.</b> ${escapeHtml(s)}</div>`).join('') || '<div class="rv-ing" style="color:var(--muted)">None listed</div>'}</div>`,
+  ()=>{ document.getElementById('sh-close').onclick = closeSheet; });
+}
+/* ── grocery engine ─────────────────────────────────────────────
+   Recipe-derived lines are regenerated whenever the week's set
+   changes; manual items and already-checked lines survive. Only
+   lossless unit merges happen (kg→g, l→ml); same ingredient in
+   irreconcilable units stays as separate, flagged lines. */
+function normKey(s){
+  let t = (s || '').toLowerCase().replace(/\s+/g, ' ').trim();
+  if(t.length > 3 && t.endsWith('s') && !t.endsWith('ss')) t = t.slice(0, -1);
+  return t;
+}
+const UNIT_ALIAS = {grams:'g',gram:'g',gr:'g',kgs:'kg',kilogram:'kg',kilograms:'kg',
+  mls:'ml',milliliter:'ml',milliliters:'ml',millilitre:'ml',millilitres:'ml',
+  litre:'l',litres:'l',liter:'l',liters:'l',
+  tablespoon:'tbsp',tablespoons:'tbsp',teaspoon:'tsp',teaspoons:'tsp'};
+function normUnit(u){
+  if(!u) return null;
+  let t = String(u).toLowerCase().trim();
+  if(!t) return null;
+  t = UNIT_ALIAS[t] || t;
+  if(t.length > 3 && t.endsWith('s') && !t.endsWith('ss')) t = t.slice(0, -1);
+  return t;
+}
+function prettyQty(qty, unit){
+  if(qty == null) return '';
+  if(unit === 'g'  && qty >= 1000) return (Math.round(qty/100)/10) + ' kg';
+  if(unit === 'ml' && qty >= 1000) return (Math.round(qty/100)/10) + ' l';
+  const q = Math.round(qty*100)/100;
+  return q + (unit ? ' ' + unit : '');
+}
+function grocerySort(a, b){
+  return (a.checked - b.checked) || (a.manual - b.manual) || a.name.localeCompare(b.name);
+}
+// Rebuilds state.mealPrep.grocery from the active recipe set. extraById lets
+// a just-adopted suggestion contribute before the subcollection listener has
+// echoed it back into the local cache.
+function regenerateGrocery(state, extraById){
+  const mp = state.mealPrep;
+  const byId = {};
+  mealRecipes.forEach(r => { byId[r.id] = r; });
+  Object.assign(byId, extraById || {});
+
+  const desired = new Map();   // groupKey → {name, qty, unit, sources[]}
+  const keyUnits = new Map();  // ingredient key → Set of unit-pools seen
+  (mp.activeRecipeIds || []).forEach(id => {
+    const r = byId[id]; if(!r) return;
+    (r.ingredients || []).forEach(ing => {
+      if(!ing || !ing.item) return;
+      const key = normKey(ing.item);
+      let unit = normUnit(ing.unit);
+      let qty = (typeof ing.qty === 'number' && isFinite(ing.qty) && ing.qty > 0) ? ing.qty : null;
+      if(qty != null && unit === 'kg'){ qty *= 1000; unit = 'g'; }
+      if(qty != null && unit === 'l'){ qty *= 1000; unit = 'ml'; }
+      // qty-less mentions pool separately ('~'); counted-but-unitless pool as '#'
+      const pool = qty == null ? '~' : (unit || '#');
+      const gk = key + '|' + pool;
+      if(!keyUnits.has(key)) keyUnits.set(key, new Set());
+      keyUnits.get(key).add(pool);
+      if(!desired.has(gk)) desired.set(gk, {name: ing.item.trim(), qty: qty == null ? null : 0, unit: qty == null ? null : unit, sources: []});
+      const d = desired.get(gk);
+      if(d.qty != null && qty != null) d.qty += qty;
+      if(!d.sources.includes(id)) d.sources.push(id);
+    });
+  });
+
+  // tombstones: a manually-deleted derived line stays gone while its group is
+  // still wanted; auto-purged once nothing wants it anymore
+  mp.dismissed = (mp.dismissed || []).filter(gk => desired.has(gk));
+  const conflictKeys = new Set([...keyUnits].filter(([,set]) => set.size > 1).map(([k]) => k));
+
+  const old = mp.grocery || [];
+  const oldByGk = {};
+  old.forEach(it => { if(!it.manual) oldByGk[it.gk] = it; });
+  const next = [];
+  desired.forEach((d, gk) => {
+    if(mp.dismissed.includes(gk)) return;
+    const prev = oldByGk[gk];
+    next.push({
+      id: prev ? prev.id : uid(), gk, manual: false,
+      name: d.name, qty: d.qty, unit: d.unit, sources: d.sources,
+      conflict: conflictKeys.has(gk.split('|')[0]),
+      checked: prev ? !!prev.checked : false,
+    });
+  });
+  // checked lines whose recipe left the set survive — likely already bought
+  old.forEach(it => {
+    if(!it.manual && it.checked && !desired.has(it.gk)) next.push({...it, conflict: false});
+  });
+  old.forEach(it => { if(it.manual) next.push(it); });
+  next.sort(grocerySort);
+  mp.grocery = next;
+}
+
+function _grocerySrcLabel(item){
+  if(item.manual) return 'added manually';
+  const names = (item.sources || []).map(id => mealRecipes.find(r => r.id === id)?.name).filter(Boolean);
+  if(!names.length) return 'from a removed recipe';
+  if(names.length === 1) return names[0];
+  return `${names[0]} +${names.length - 1} more`;
+}
+function _groceryViewHTML(mp){
+  const items = mp.grocery || [];
+  if(!items.length){
+    const hasActive = (mp.activeRecipeIds || []).length > 0;
+    return `<div class="empty-state">
+      <i data-lucide="shopping-basket"></i>
+      <div class="es-title">Nothing on the list</div>
+      <p>${hasActive ? 'Your week’s recipes had no listed ingredients — add items below.' : 'Add recipes to this week and the groceries build themselves.'}</p>
+      <button class="rc-btn add" id="g-add-empty" style="margin-top:16px;flex:none;width:180px;padding:0 14px">+ Add item</button>
+    </div>`;
+  }
+  const got = items.filter(i => i.checked).length;
+  let html = `<div class="seg-lbl" style="margin:18px 22px 4px;display:flex;justify-content:space-between">
+    <span>To get</span>
+    <span style="color:var(--sky-deep);letter-spacing:.02em;text-transform:none">${got} of ${items.length} gotten</span>
+  </div>`;
+  items.forEach(it => {
+    html += `<div class="g-item${it.checked ? ' done' : ''}" data-g-toggle="${it.id}">
+      <div class="g-check">${it.checked ? '✓' : ''}</div>
+      <div class="g-info">
+        <div class="g-name">${escapeHtml(it.name)}</div>
+        <div class="g-src">${escapeHtml(_grocerySrcLabel(it))}</div>
+      </div>
+      ${it.conflict && !it.checked ? '<span class="g-flag">units differ</span>' : ''}
+      <div class="g-qty">${escapeHtml(prettyQty(it.qty, it.unit))}</div>
+      <button class="g-del" data-g-del="${it.id}" aria-label="Remove">✕</button>
+    </div>`;
+  });
+  html += `<button class="g-add" id="g-add"><span class="plus">+</span>Add item</button>`;
+  return html;
+}
+function _bindGroceryHandlers(mp){
+  document.querySelectorAll('[data-g-toggle]').forEach(el => el.addEventListener('click', e => {
+    if(e.target.closest('[data-g-del]')) return;
+    const id = el.dataset.gToggle;
+    commitChange(state => {
+      const it = (state.mealPrep.grocery || []).find(g => g.id === id);
+      if(it){ it.checked = !it.checked; state.mealPrep.grocery.sort(grocerySort); }
+    });
+    renderMeals();
+  }));
+  document.querySelectorAll('[data-g-del]').forEach(el => el.addEventListener('click', e => {
+    e.stopPropagation();
+    const id = el.dataset.gDel;
+    commitChange(state => {
+      const g = state.mealPrep.grocery || [];
+      const it = g.find(x => x.id === id);
+      state.mealPrep.grocery = g.filter(x => x.id !== id);
+      if(it && !it.manual){
+        state.mealPrep.dismissed = state.mealPrep.dismissed || [];
+        if(!state.mealPrep.dismissed.includes(it.gk)) state.mealPrep.dismissed.push(it.gk);
+      }
+    });
+    renderMeals();
+  }));
+  const add = document.getElementById('g-add') || document.getElementById('g-add-empty');
+  if(add) add.onclick = openAddGroceryItemSheet;
+}
+function openAddGroceryItemSheet(){
+  openSheet(`
+    <div class="grabber"></div>
+    <div class="sheet-head">
+      <div class="sheet-title">Add item</div>
+      <button class="sheet-close" id="sh-close"><i data-lucide="x"></i></button>
+    </div>
+    <div class="seg-lbl" style="margin-bottom:6px">Item</div>
+    <input class="plain-input" id="gi-name" placeholder="Paper towels, coffee…">
+    <div style="display:flex;gap:10px">
+      <div style="flex:1"><div class="seg-lbl" style="margin-bottom:6px">Qty <span style="text-transform:none;letter-spacing:0">(optional)</span></div>
+        <input class="plain-input" id="gi-qty" type="number" min="0" step="any"></div>
+      <div style="flex:1"><div class="seg-lbl" style="margin-bottom:6px">Unit <span style="text-transform:none;letter-spacing:0">(optional)</span></div>
+        <input class="plain-input" id="gi-unit" placeholder="g, pack…"></div>
+    </div>
+    <button class="btn-primary" id="gi-save"><i data-lucide="check"></i>Add to list</button>`,
+  ()=>{
+    document.getElementById('sh-close').onclick = closeSheet;
+    document.getElementById('gi-name').focus();
+    document.getElementById('gi-save').onclick = ()=>{
+      const name = document.getElementById('gi-name').value.trim();
+      if(!name){ document.getElementById('gi-name').focus(); return; }
+      let qty = parseFloat(document.getElementById('gi-qty').value);
+      qty = (isFinite(qty) && qty > 0) ? qty : null;
+      let unit = normUnit(document.getElementById('gi-unit').value.trim());
+      if(qty != null && unit === 'kg'){ qty *= 1000; unit = 'g'; }
+      if(qty != null && unit === 'l'){ qty *= 1000; unit = 'ml'; }
+      const item = {id: uid(), gk: 'manual|' + uid(), manual: true, name, qty, unit: qty == null ? null : unit, sources: [], conflict: false, checked: false};
+      commitChange(state => {
+        state.mealPrep.grocery = state.mealPrep.grocery || [];
+        state.mealPrep.grocery.push(item);
+        state.mealPrep.grocery.sort(grocerySort);
+      });
+      closeSheet(); renderMeals();
+    };
+  });
+}
+function _bindMealHandlers(mp){
+  document.querySelectorAll('[data-style]').forEach(el => el.addEventListener('click', ()=>{
+    const id = el.dataset.style;
+    mealStylePicking = false;
+    mealResults = null; // selections changed → stale results
+    commitChange(state => { state.mealPrep.style = id; });
+    renderMeals();
+  }));
+  const chg = document.getElementById('mp-change-style');
+  if(chg) chg.onclick = ()=>{ mealStylePicking = true; renderMeals(); };
+  document.querySelectorAll('[data-protein]').forEach(el => el.addEventListener('click', ()=>{
+    const p = el.dataset.protein;
+    mealResults = null;
+    commitChange(state => {
+      const arr = state.mealPrep.proteins;
+      const i = arr.indexOf(p);
+      if(i >= 0) arr.splice(i, 1);
+      else if(arr.length < PROTEIN_CAP) arr.push(p);
+    });
+    renderMeals();
+  }));
+  const find = document.getElementById('mp-find');
+  if(find) find.onclick = ()=>{
+    // Saved matches only — AI is opt-in from the results, never automatic.
+    mealResults = {aiRequested:false, loading:false, error:null, suggested:[]};
+    renderMeals();
+    document.getElementById('mp-results')?.scrollIntoView({behavior:'smooth', block:'start'});
+  };
+  const requestAI = ()=>{
+    mealResults = {aiRequested:true, loading:true, error:null, suggested:[]};
+    renderMeals();
+    document.getElementById('mp-results')?.scrollIntoView({behavior:'smooth', block:'start'});
+    fetchSuggestions(mp);
+  };
+  const aiGo = document.getElementById('mp-ai-go');
+  if(aiGo) aiGo.onclick = requestAI;
+  const moreAI = document.getElementById('mp-more-ai');
+  if(moreAI) moreAI.onclick = requestAI;
+  const retry = document.getElementById('mp-retry');
+  if(retry) retry.onclick = requestAI;
+  const pasteInstead = document.getElementById('mp-paste-instead');
+  if(pasteInstead) pasteInstead.onclick = openPasteRecipeSheet;
+  const ckbk = document.getElementById('mp-cookbook');
+  if(ckbk) ckbk.onclick = openCookbookSheet;
+  const clear = document.getElementById('mp-clear');
+  if(clear) clear.onclick = ()=>{ commitChange(state => { state.mealPrep.activeRecipeIds = []; regenerateGrocery(state); }); renderMeals(); };
+
+  document.querySelectorAll('[data-view-saved]').forEach(el => el.addEventListener('click', ()=>{
+    const r = mealRecipes.find(x => x.id === el.dataset.viewSaved);
+    if(r) openRecipeView(r);
+  }));
+  document.querySelectorAll('[data-view-sugg]').forEach(el => el.addEventListener('click', ()=>{
+    const r = mealResults?.suggested[Number(el.dataset.viewSugg)];
+    if(r) openRecipeView(r);
+  }));
+  document.querySelectorAll('[data-week-saved]').forEach(el => el.addEventListener('click', ()=>{
+    const id = el.dataset.weekSaved;
+    commitChange(state => {
+      const arr = state.mealPrep.activeRecipeIds;
+      const i = arr.indexOf(id);
+      if(i >= 0) arr.splice(i, 1); else arr.push(id);
+      regenerateGrocery(state);
+    });
+    renderMeals();
+  }));
+  document.querySelectorAll('[data-week-sugg]').forEach(el => el.addEventListener('click', ()=>{
+    const idx = Number(el.dataset.weekSugg);
+    const r = mealResults?.suggested[idx];
+    if(!r) return;
+    // Adding a suggestion adopts it into the cookbook (subcollection doc,
+    // flagged source:'ai') and puts it in this week's set — it then shows
+    // under Saved via the recipes listener, so drop it from the transient list.
+    const id = uid();
+    const doc = {
+      name: r.name, protein: r.protein, styles: mp.style ? [mp.style] : [],
+      serves: r.serves ?? null, minutes: r.minutes ?? null,
+      ingredients: r.ingredients || [], steps: r.steps || [],
+      source: 'ai', createdAt: Date.now(),
+    };
+    // Order matters (root cause of the "lost selections" bug): commit the
+    // week id ONLY after the cookbook write succeeds, and surface failures
+    // instead of a console-only catch — a rules rejection used to orphan
+    // the id silently and the card would vanish.
+    el.disabled = true;
+    RECIPES.doc(id).set(doc).then(() => {
+      mealResults.suggested.splice(idx, 1);
+      commitChange(state => {
+        state.mealPrep.activeRecipeIds.push(id);
+        // the listener hasn't echoed the new doc into the cache yet — pass it in
+        regenerateGrocery(state, {[id]: doc});
+      });
+      renderMeals();
+    }).catch(err => {
+      el.disabled = false;
+      openModal(`
+        <div class="mbox-icon" style="background:var(--red-soft)"><i data-lucide="alert-triangle" style="color:var(--red)"></i></div>
+        <div class="mbox-title">Couldn\'t save that recipe</div>
+        <div class="mbox-sub">${escapeHtml(err.message || String(err))}</div>
+        <div class="mbox-btns"><button class="mbox-btn primary-btn" id="mp-ok">OK</button></div>`,
+      ()=>{ document.getElementById('mp-ok').onclick = closeModal; });
+    });
+  }));
+}
+
+/* ── paste → AI parse → review-before-save ── */
+const ING_UNITS = new Set(['g','kg','ml','l','tbsp','tsp','cup','cups','bunch','head','heads','can','cans','clove','cloves','slice','slices','piece','pieces','pack','packs']);
+function parseQtyToken(t){
+  if(!t) return null;
+  const map = {'¼':0.25,'½':0.5,'¾':0.75};
+  if(map[t] != null) return map[t];
+  if(/^\d+\/\d+$/.test(t)){ const [a,b] = t.split('/').map(Number); return b ? a/b : null; }
+  const n = parseFloat(t.replace(',', '.'));
+  return Number.isFinite(n) ? n : null;
+}
+function parseIngredientLine(line){
+  const t = line.trim(); if(!t) return null;
+  const tokens = t.split(/\s+/);
+  let qty = parseQtyToken(tokens[0]);
+  if(qty != null) tokens.shift();
+  let unit = null;
+  if(qty != null && tokens.length > 1 && ING_UNITS.has((tokens[0]||'').toLowerCase())) unit = tokens.shift().toLowerCase();
+  const item = tokens.join(' ').trim();
+  return item ? {qty, unit, item} : {qty:null, unit:null, item:t};
+}
+
+async function proxyPost(path, body, timeoutMs){
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  try{
+    const res = await fetch(MEAL_PROXY_URL + path, {
+      method:'POST', headers:{'Content-Type':'application/json'}, signal:controller.signal,
+      body: JSON.stringify(body)
+    });
+    const data = await res.json();
+    if(!res.ok) throw new Error(data.error || ('HTTP ' + res.status));
+    return data;
+  } finally { clearTimeout(timeoutId); }
+}
+async function runParseFlow(text, btn, errEl, restoreHTML){
+  if(MEAL_PROXY_URL.includes('YOUR-SUBDOMAIN')){
+    errEl.textContent = 'The meal-prep-proxy Worker is not deployed yet — run wrangler deploy and set MEAL_PROXY_URL in app.js.';
+    errEl.style.display = 'block'; return;
+  }
+  btn.disabled = true; btn.textContent = 'Parsing…';
+  try{
+    const data = await proxyPost('/parse', {text, existingProteins: proteinOptions()}, 25000);
+    openParseReviewSheet(data.recipe, data.via);
+  }catch(e){
+    errEl.textContent = e.name==='AbortError' ? 'Parse timed out — try again' : e.message;
+    errEl.style.display = 'block';
+    btn.disabled = false; btn.innerHTML = restoreHTML;
+    lucide.createIcons();
+  }
+}
+function openPasteRecipeSheet(){
+  openSheet(`
+    <div class="grabber"></div>
+    <div class="sheet-head">
+      <div class="sheet-title">Add a recipe</div>
+      <button class="sheet-close" id="sh-close"><i data-lucide="x"></i></button>
+    </div>
+    <div class="seg-lbl" style="margin-bottom:6px">From a link</div>
+    <div style="display:flex;gap:8px">
+      <input class="plain-input" id="pp-url" type="url" placeholder="https://…" style="flex:1" autocomplete="off">
+      <button class="btn-primary" id="pp-fetch" style="width:auto;flex:0 0 auto;padding:0 18px;height:48px;margin:0">Fetch</button>
+    </div>
+    <div class="seg-lbl" style="margin:8px 0 6px">Or paste the text</div>
+    <textarea class="modal-notes" id="pp-text" style="min-height:150px" placeholder="Paste the whole thing here…"></textarea>
+    <div class="rc-none err" id="pp-err" style="display:none;margin:0"></div>
+    <button class="btn-primary" id="pp-parse"><i data-lucide="wand-2"></i>Parse it</button>`,
+  ()=>{
+    document.getElementById('sh-close').onclick = closeSheet;
+    const errEl = document.getElementById('pp-err');
+    document.getElementById('pp-parse').onclick = ()=>{
+      errEl.style.display = 'none';
+      const text = document.getElementById('pp-text').value.trim();
+      if(text.length < 20){ errEl.textContent = 'Paste at least a few lines first.'; errEl.style.display = 'block'; return; }
+      runParseFlow(text, document.getElementById('pp-parse'), errEl, '<i data-lucide="wand-2"></i>Parse it');
+    };
+    document.getElementById('pp-fetch').onclick = async ()=>{
+      errEl.style.display = 'none';
+      const url = document.getElementById('pp-url').value.trim();
+      if(!/^https?:\/\//i.test(url)){ errEl.textContent = 'Enter a full link starting with http(s)://'; errEl.style.display = 'block'; return; }
+      if(MEAL_PROXY_URL.includes('YOUR-SUBDOMAIN')){
+        errEl.textContent = 'The meal-prep-proxy Worker is not deployed yet.'; errEl.style.display = 'block'; return;
+      }
+      const btn = document.getElementById('pp-fetch');
+      btn.disabled = true; btn.textContent = 'Fetching…';
+      try{
+        const data = await proxyPost('/fetch', {url}, 25000);
+        document.getElementById('pp-text').value = data.text || '';
+        await runParseFlow(data.text || '', btn, errEl, 'Fetch');
+      }catch(e){
+        errEl.textContent = (e.name==='AbortError' ? 'That site took too long to respond' : e.message) + ' — paste the recipe text below instead.';
+        errEl.style.display = 'block';
+        btn.disabled = false; btn.textContent = 'Fetch';
+        document.getElementById('pp-text').focus();
+      }
+    };
+  });
+}
+function openCookbookSheet(){
+  const rows = mealRecipes.map(r => {
+    const meta = [r.serves ? `Serves ${r.serves}` : '', r.minutes ? `${r.minutes} min` : '', r.source==='ai' ? 'AI' : ''].filter(Boolean).join(' · ');
+    return `<button class="ckbk-row" data-ckbk="${r.id}">
+      <div class="g-info">
+        <div class="g-name">${escapeHtml(r.name)}</div>
+        <div class="g-src">${meta ? escapeHtml(meta) : '&nbsp;'}</div>
+      </div>
+      <span class="rc-chip p">${escapeHtml(r.protein || '?')}</span>
+      <i data-lucide="chevron-right" style="width:15px;height:15px;color:var(--muted)"></i>
+    </button>`;
+  }).join('');
+  openSheet(`
+    <div class="grabber"></div>
+    <div class="sheet-head">
+      <div class="sheet-title">Saved recipes</div>
+      <button class="sheet-close" id="sh-close"><i data-lucide="x"></i></button>
+    </div>
+    ${rows || `<div class="rc-none" style="margin:0">Nothing saved yet — paste a recipe or adopt an AI suggestion.</div>`}`,
+  ()=>{
+    document.getElementById('sh-close').onclick = closeSheet;
+    document.querySelectorAll('[data-ckbk]').forEach(el => el.addEventListener('click', ()=>{
+      const r = mealRecipes.find(x => x.id === el.dataset.ckbk);
+      if(r) openRecipeView(r);
+    }));
+  });
+}
+
+function openParseReviewSheet(recipe, via){
+  const mp = S.mealPrep || {style:null};
+  const options = proteinOptions();
+  // The parse never silently creates a tag: a new one is badged here and
+  // only becomes real when you save.
+  let selProtein = recipe.protein || '';
+  const parsedIsNew = !!recipe.proteinIsNew && !!selProtein;
+  let selStyles = mp.style ? [mp.style] : [];
+
+  const chipRow = options.map(p =>
+    `<button class="pk-chip${normalizeProtein(p)===normalizeProtein(selProtein)?' on':''}" data-pr-protein="${escapeHtml(p)}">${escapeHtml(p)}</button>`
+  ).join('') + (parsedIsNew ? `<button class="pk-chip on newtag" data-pr-protein="${escapeHtml(selProtein)}">${escapeHtml(selProtein)} · new</button>` : '');
+
+  openSheet(`
+    <div class="grabber"></div>
+    <div class="sheet-head">
+      <div class="sheet-title">Check the parse</div>
+      <button class="sheet-close" id="sh-close"><i data-lucide="x"></i></button>
+    </div>
+    ${via==='heuristic' ? '<div class="rc-none err" style="margin:0">The AI parse failed, so this is a rough text-scan — double-check every field.</div>' : ''}
+    <div class="seg-lbl" style="margin-bottom:6px">Title</div>
+    <input class="plain-input" id="pr-name" value="${escapeHtml(recipe.name||'')}">
+    <div class="seg-lbl" style="margin-bottom:6px">Protein tag ${parsedIsNew ? '<span style="color:var(--sky-deep);text-transform:none;letter-spacing:0"> — new tag: joins the picker when you save</span>' : ''}</div>
+    <div class="pk-row" style="padding:0" id="pr-proteins">${chipRow}</div>
+    <input class="plain-input" id="pr-protein-custom" placeholder="Or type a different tag…" style="margin-top:2px">
+    <div class="seg-lbl" style="margin-bottom:6px">Prep styles <span style="text-transform:none;letter-spacing:0">(optional)</span></div>
+    <div class="pk-row" style="padding:0">
+      ${MEAL_STYLES.map(s => `<button class="pk-chip${selStyles.includes(s.id)?' on':''}" data-pr-style="${s.id}">${s.name}</button>`).join('')}
+    </div>
+    <div style="display:flex;gap:10px">
+      <div style="flex:1"><div class="seg-lbl" style="margin-bottom:6px">Serves</div>
+        <input class="plain-input" id="pr-serves" type="number" min="1" max="24" value="${recipe.serves ?? ''}"></div>
+      <div style="flex:1"><div class="seg-lbl" style="margin-bottom:6px">Minutes</div>
+        <input class="plain-input" id="pr-minutes" type="number" min="1" max="1440" value="${recipe.minutes ?? ''}"></div>
+    </div>
+    <div class="seg-lbl" style="margin-bottom:6px">Ingredients <span style="text-transform:none;letter-spacing:0">— one per line: qty unit item</span></div>
+    <textarea class="modal-notes" id="pr-ing" style="min-height:120px">${escapeHtml((recipe.ingredients||[]).map(fmtIngredient).join('\n'))}</textarea>
+    <div class="seg-lbl" style="margin-bottom:6px">Steps <span style="text-transform:none;letter-spacing:0">— one per line</span></div>
+    <textarea class="modal-notes" id="pr-steps" style="min-height:120px">${escapeHtml((recipe.steps||[]).join('\n'))}</textarea>
+    <div class="rc-none err" id="pr-err" style="display:none;margin:0"></div>
+    <button class="btn-primary" id="pr-save"><i data-lucide="check"></i>Save recipe</button>`,
+  ()=>{
+    document.getElementById('sh-close').onclick = closeSheet;
+    const customInput = document.getElementById('pr-protein-custom');
+    document.querySelectorAll('[data-pr-protein]').forEach(el => el.addEventListener('click', ()=>{
+      selProtein = el.dataset.prProtein;
+      customInput.value = ''; // chip choice wins over any typed tag
+      document.querySelectorAll('[data-pr-protein]').forEach(e => e.classList.toggle('on', e===el));
+    }));
+    // Typing a tag deselects the chips — the typed value wins on save.
+    customInput.addEventListener('input', ()=>{
+      if(customInput.value.trim()){
+        document.querySelectorAll('[data-pr-protein]').forEach(e => e.classList.remove('on'));
+      }
+    });
+    document.querySelectorAll('[data-pr-style]').forEach(el => el.addEventListener('click', ()=>{
+      const id = el.dataset.prStyle;
+      const i = selStyles.indexOf(id);
+      if(i >= 0) selStyles.splice(i, 1); else selStyles.push(id);
+      el.classList.toggle('on', i < 0);
+    }));
+    document.getElementById('pr-save').onclick = ()=>{
+      const name = document.getElementById('pr-name').value.trim();
+      if(!name){ document.getElementById('pr-name').focus(); return; }
+      // A typed tag overrides the chip selection; typing it is the explicit
+      // confirmation, so it never creates a tag silently.
+      const typed = customInput.value.trim();
+      const chosen = typed || (document.querySelector('#pr-proteins .pk-chip.on') ? selProtein : '');
+      if(!chosen){ customInput.focus(); return; }
+      // If an edited/custom tag normalizes onto an existing option, snap to it
+      const match = proteinOptions().find(p => normalizeProtein(p) === normalizeProtein(chosen));
+      const ingredients = document.getElementById('pr-ing').value.split('\n').map(parseIngredientLine).filter(Boolean);
+      const steps = document.getElementById('pr-steps').value.split('\n').map(s => s.replace(/^\d+[.)]\s*/, '').trim()).filter(Boolean);
+      const saveBtn = document.getElementById('pr-save');
+      saveBtn.disabled = true; saveBtn.textContent = 'Saving…';
+      // Surface failures instead of a console-only catch (root cause of the
+      // "lamb tag never appeared" bug: production rules rejected the write
+      // and nothing told you).
+      RECIPES.doc(uid()).set({
+        name, protein: match || chosen, styles: selStyles,
+        serves: parseInt(document.getElementById('pr-serves').value) || null,
+        minutes: parseInt(document.getElementById('pr-minutes').value) || null,
+        ingredients, steps, source: 'pasted', createdAt: Date.now(),
+      }).then(() => {
+        closeSheet();
+        renderMeals(); // listener refreshes the cache; picker options update with any new tag
+      }).catch(err => {
+        const errEl = document.getElementById('pr-err');
+        if(errEl){ errEl.textContent = 'Save failed: ' + (err.message || err); errEl.style.display = 'block'; }
+        saveBtn.disabled = false; saveBtn.innerHTML = '<i data-lucide="check"></i>Save recipe';
+        lucide.createIcons();
+      });
+      return;
+    };
+  });
+}
+
+/* ════════════════════════════════════════ TAB SWITCHING */
+let currentTab = 'tasks';
+let currentRoomDetail = null;
+let tasksSubView = 'tasks'; // 'tasks' | 'rooms' | 'roomDetail' | 'history'
+let mealSubView = 'recipes'; // 'recipes' | 'grocery'
+let isHdrCollapsed = false;
+const RENDERERS = {tasks:renderTasks, history:renderHistory, calendar:renderCalendar, dates:renderDates, meals:renderMeals, settings:renderSettings};
+
+function switchTab(tab){
+  isHdrCollapsed = false;
+  currentTab = tab;
+  currentRoomDetail = null;
+  tasksSubView = 'tasks';
+  mealSubView = 'recipes';
+  mealStylePicking = false;
+  mealResults = null;
+  // Meals is day-only: the body class forces the day token set (dimmed at
+  // night) for the tab AND its overlays. Other tabs keep global theming.
+  document.body.classList.toggle('meals', tab==='meals');
+  // Reset header state instantly (no animation) when switching tabs
+  const prevHdr = document.querySelector('#hdr .tasks-hdr');
+  if(prevHdr){ prevHdr.style.transition='none'; prevHdr.style.height=''; prevHdr.classList.remove('collapsing','scrolled'); }
+  const panel = document.getElementById('panel');
+  panel.style.transition = 'none';
+  panel.style.paddingTop = '';
+  panel.scrollTop = 0;
+  document.getElementById('mini-hdr')?.classList.remove('visible');
+  document.querySelectorAll('.ni').forEach(n => n.classList.toggle('active', n.dataset.tab===tab));
+  RENDERERS[tab]?.();
+  // Re-enable transitions after layout settles
+  requestAnimationFrame(() => {
+    panel.style.transition = '';
+    const hdr = document.querySelector('#hdr .tasks-hdr');
+    if(hdr) hdr.style.transition = '';
+  });
+}
+
+/* ════════════════════════════════════════ BOOT */
+const setupEl       = document.getElementById('setup');
+const appEl         = document.getElementById('app');
+const setupCreateEl = document.getElementById('setup-create');
+const setupRolePickEl = document.getElementById('setup-rolepick');
+// Only set to true when the user explicitly completes setup in this session.
+// Prevents Firebase snapshot from auto-dismissing the onboarding screen.
+let sessionSetupComplete = false;
+// True once the first Firestore read has told us whether a household already
+// exists remotely, so we know whether to show the create-household form or
+// the role picker (see boot logic below).
+let firstSnapshotHandled = false;
+
+function enterApp(){
+  setupEl.style.display='none';
+  appEl.hidden=false;
+  lucide.createIcons();
+  switchTab('tasks');
+}
+
+// Shown when this device already knows about an existing household (another
+// device completed Setup) but hasn't been told which partner it belongs to
+// yet. Picking a name only sets the local role — it never touches S.
+function renderRolePick(){
+  setupCreateEl.classList.add('hidden');
+  setupRolePickEl.classList.remove('hidden');
+  setupRolePickEl.innerHTML = `
+    <p class="field-label" style="text-align:center;margin:0 0 2px">Which one of you is this?</p>
+    <p class="setup-opt-note" style="margin-bottom:6px">This just personalises this device — it won't change anything shared.</p>
+    <button class="btn-primary" id="pick-role-1">${escapeHtml(S.name1)}</button>
+    <button class="btn-primary" id="pick-role-2">${escapeHtml(S.name2)}</button>`;
+  const choose = role => { myRole = role; saveRole(role); sessionSetupComplete = true; enterApp(); };
+  document.getElementById('pick-role-1').onclick = () => choose('name1');
+  document.getElementById('pick-role-2').onclick = () => choose('name2');
+}
+
+// Boot instantly from localStorage
+S = deepMerge(defaultState(), loadLocal() || {});
+lucide.createIcons();
+if(S.setup){
+  // Returning device — preserve today's behaviour exactly. Devices that
+  // completed Setup before the per-device role concept existed default to
+  // 'name1', matching what they've always effectively been.
+  if(!myRole){ myRole = 'name1'; saveRole(myRole); }
+  sessionSetupComplete = true;
+  setupEl.style.display='none';
+  appEl.hidden=false;
+  switchTab('tasks');
+} else {
+  // Fresh device: don't know yet whether this is the very first-ever setup
+  // (show the create-household form) or a second device joining a household
+  // that already exists (show the role picker instead). Hide the form until
+  // the first Firestore read tells us which — with a timeout fallback in
+  // case that read never arrives (e.g. genuinely offline first launch).
+  setupCreateEl.classList.add('hidden');
+  setTimeout(() => {
+    // Deliberately doesn't set firstSnapshotHandled — this is just a visible
+    // fallback so the screen isn't blank while offline. If a real snapshot
+    // arrives later and turns out to show an existing household, the
+    // onSnapshot handler below still swaps this out for the role picker.
+    if(!firstSnapshotHandled && !sessionSetupComplete){
+      setupCreateEl.classList.remove('hidden');
+    }
+  }, 4000);
+}
+
+// Firestore rules require an authenticated request, so sign in anonymously
+// first and only attach the sync listener once that succeeds. Anonymous
+// sessions persist on-device, so this is instant on repeat launches.
+let householdSyncStarted = false;
+function startHouseholdSync(){
+  if(householdSyncStarted) return;
+  householdSyncStarted = true;
+  startRecipesSync();
+  // Firebase syncs data silently — only transitions UI if setup was already complete this session
+  HOUSEHOLD.onSnapshot(snap => {
+    // Skip the optimistic local echo of our own writes — only act on
+    // server-confirmed data, so a single save doesn't trigger extra
+    // redundant re-renders on top of the one the action already did.
+    if(snap.metadata.hasPendingWrites) return;
+    const remoteHouseholdReady = snap.exists && !!(snap.data() || {}).setup;
+    if(snap.exists){
+      S = deepMerge(defaultState(), snap.data());
+      saveLocal();
+    } else {
+      HOUSEHOLD.set(S);
+    }
+    if(!sessionSetupComplete){
+      // Re-checked on every snapshot, not just the first: a slow first read
+      // could otherwise leave a straggling device stuck on the create-form
+      // fallback even after the real household data confirms one exists.
+      if(remoteHouseholdReady){
+        if(setupRolePickEl.classList.contains('hidden')) renderRolePick();
+      } else if(!firstSnapshotHandled){
+        setupCreateEl.classList.remove('hidden');
+      }
+    }
+    firstSnapshotHandled = true;
+    if(sessionSetupComplete){
+      if(appEl.hidden){
+        enterApp();
+      } else {
+        RENDERERS[currentTab]?.();
+      }
+    }
+    // If !sessionSetupComplete, user is on the onboarding screen — don't auto-dismiss
+  }, err => {
+    console.error('Firestore sync error:', err);
+  });
+}
+
+firebase.auth().onAuthStateChanged(user => {
+  if(user) startHouseholdSync();
+});
+
+// signInAnonymously() has no built-in retry — a device that's offline at the
+// exact moment it loads would otherwise fail once and be stuck (on the
+// create-form fallback, or blank) until a manual page reload. Retry with
+// backoff, and immediately whenever the browser regains connectivity.
+let signInRetryDelay = 2000;
+const SIGN_IN_MAX_RETRY_DELAY = 30000;
+function attemptSignIn(){
+  if(householdSyncStarted) return; // already signed in and syncing
+  firebase.auth().signInAnonymously().catch(err => {
+    console.error(`Anonymous sign-in failed, retrying in ${signInRetryDelay}ms:`, err);
+    setTimeout(attemptSignIn, signInRetryDelay);
+    signInRetryDelay = Math.min(signInRetryDelay * 2, SIGN_IN_MAX_RETRY_DELAY);
+  });
+}
+attemptSignIn();
+window.addEventListener('online', attemptSignIn);
+
+document.getElementById('setup-go').addEventListener('click', ()=>{
+  const n1=document.getElementById('inp-name1').value.trim();
+  const n2=document.getElementById('inp-name2').value.trim();
+  if(!n1||!n2){ alert('Please enter both names.'); return; }
+  const email1 = document.getElementById('inp-email1')?.value.trim()||'';
+  const email2 = document.getElementById('inp-email2')?.value.trim()||'';
+  myRole = 'name1'; saveRole(myRole);
+  sessionSetupComplete = true;
+  commitChange(state => {
+    state.name1=n1; state.name2=n2; state.setup=true;
+    state.email1=email1; state.email2=email2;
+  });
+  enterApp();
+});
+
+document.querySelectorAll('.ni').forEach(btn =>
+  btn.addEventListener('click', ()=> switchTab(btn.dataset.tab))
+);
+
+function initScrollCollapse(){
+  // Bind mini-header buttons (static in HTML, so bind once at boot)
+  const mhAdd = document.getElementById('mh-add-btn');
+  if(mhAdd) mhAdd.onclick = openAddTaskSheet;
+  const mhTasks = document.getElementById('mh-tasks-btn');
+  if(mhTasks) mhTasks.onclick = ()=>{ tasksSubView='tasks'; currentRoomDetail=null; renderTasks(); };
+  const mhRooms = document.getElementById('mh-rooms-btn');
+  if(mhRooms) mhRooms.onclick = ()=>{ tasksSubView='rooms'; currentRoomDetail=null; renderTasks(); };
+
+  const panel   = document.getElementById('panel');
+  const miniHdr = document.getElementById('mini-hdr');
+  const DURATION = 320;
+  let lastY = 0, upAccum = 0;
+
+  function getHdr(){ return document.querySelector('#hdr .tasks-hdr'); }
+
+  function collapseHdr(){
+    if(isHdrCollapsed) return;
+    isHdrCollapsed = true;
+    const hdr = getHdr(); if(!hdr) return;
+    // Lock current pixel height, then animate to 0
+    const fullH = hdr.offsetHeight;
+    hdr.style.transition = 'none';
+    hdr.style.height = fullH + 'px';
+    hdr.classList.add('collapsing');
+    hdr.offsetHeight; // force reflow so transition applies on next frame
+    hdr.style.transition = `height ${DURATION}ms cubic-bezier(.4,0,.2,1), box-shadow ${DURATION}ms ease, border-radius ${DURATION}ms ease`;
+    hdr.style.height = '0';
+    miniHdr.classList.add('visible');
+    // Pad the panel top so list content stays visible below the mini-header
+    panel.style.paddingTop = miniHdr.offsetHeight + 'px';
+  }
+
+  function expandHdr(){
+    if(!isHdrCollapsed) return;
+    isHdrCollapsed = false;
+    upAccum = 0;
+    const hdr = getHdr(); if(!hdr) return;
+    // Measure natural height: briefly set to auto, read, then animate from 0
+    hdr.style.transition = 'none';
+    hdr.style.height = 'auto';
+    const fullH = hdr.offsetHeight;
+    hdr.style.height = '0';
+    hdr.offsetHeight; // reflow
+    hdr.classList.remove('collapsing');
+    hdr.style.transition = `height ${DURATION}ms cubic-bezier(.4,0,.2,1), box-shadow ${DURATION}ms ease, border-radius ${DURATION}ms ease`;
+    hdr.style.height = fullH + 'px';
+    miniHdr.classList.remove('visible');
+    panel.style.paddingTop = '0';
+    // After animation, remove inline height so the header can reflow naturally
+    setTimeout(() => {
+      if(!isHdrCollapsed){ hdr.style.height = ''; hdr.style.transition = ''; }
+    }, DURATION + 20);
+  }
+
+  panel.addEventListener('scroll', function(){
+    // Always track position first — early-returning before updating lastY
+    // leaves a stale value that swallows the first delta back on this tab.
+    const y = this.scrollTop;
+    const delta = y - lastY;
+    lastY = y;
+    if(currentTab !== 'tasks') return;
+    // Rooms/room-detail use the compact static header — no collapse there.
+    if(tasksSubView === 'rooms' || tasksSubView === 'roomDetail') return;
+    if(delta > 0){
+      // Scrolling down — reset upward accumulator and collapse when past threshold
+      upAccum = 0;
+      if(y > 60 && !isHdrCollapsed) collapseHdr();
+    } else if(delta < 0){
+      // Scrolling up — only expand after 60px of intentional upward movement
+      upAccum += -delta;
+      if(upAccum >= 60 && isHdrCollapsed) expandHdr();
+    }
+  }, {passive:true});
+}
+initScrollCollapse();
+lucide.createIcons(); // render mini-hdr icons

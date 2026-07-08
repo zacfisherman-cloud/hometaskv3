@@ -1,8 +1,16 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /households/{doc} {
-      allow read, write: if true;
+    // Scoped to the single known household document (not a wildcard) and
+    // gated behind Firebase Auth — the app signs in anonymously before
+    // touching Firestore, so unauthenticated requests are rejected outright.
+    match /households/home {
+      allow read, write: if request.auth != null;
+    }
+    // Saved recipes live in a subcollection so bulky, forever-growing recipe
+    // text stays out of the hot single document. Same auth gate.
+    match /households/home/recipes/{recipeId} {
+      allow read, write: if request.auth != null;
     }
   }
 }
