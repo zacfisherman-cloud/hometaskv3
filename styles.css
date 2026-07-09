@@ -665,11 +665,14 @@ button,a,[class$="-tile"],[class$="-row"]{touch-action:manipulation}
 .modal-notes:focus{border-color:var(--acc-a);box-shadow:0 0 0 3px var(--sky-soft)}
 
 /* ── wheel overlay ───────────────────────────────────────────── */
-#wheel-overlay{position:fixed;inset:0;z-index:500;background:rgba(7,10,17,.95);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;animation:fadeIn .2s}
-#wheel-dismiss-btn{position:absolute;top:calc(env(safe-area-inset-top) + 14px);right:18px;width:44px;height:44px;border-radius:50%;background:rgba(255,255,255,.08);color:#F2F5FA;font-size:20px;display:flex;align-items:center;justify-content:center;border:1px solid rgba(255,255,255,.16)}
+/* wheel chrome — DEFAULT is the light "casino" treatment (gold pointer,
+   warm halo, bright scrim); the dark moody variant lives under
+   [data-theme="dark"] below. */
+#wheel-overlay{position:fixed;inset:0;z-index:500;background:rgba(233,239,247,.96);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;animation:fadeIn .2s}
+#wheel-dismiss-btn{position:absolute;top:calc(env(safe-area-inset-top) + 14px);right:18px;width:44px;height:44px;border-radius:50%;background:rgba(22,32,46,.06);color:#16202E;font-size:20px;display:flex;align-items:center;justify-content:center;border:1px solid rgba(22,32,46,.14)}
 .wh-title{
-  font-weight:250;font-size:22px;letter-spacing:-.01em;text-align:center;
-  background:linear-gradient(100deg,#C9B6FF 0%,#8B9DF0 40%,#5EE1C0 70%,#C9B6FF 100%) 0 0/220% 100%;
+  font-weight:350;font-size:22px;letter-spacing:-.01em;text-align:center;
+  background:linear-gradient(100deg,#B8860B 0%,#E3B23C 35%,#C4384F 70%,#B8860B 100%) 0 0/220% 100%;
   -webkit-background-clip:text;background-clip:text;color:transparent;
   animation:whShimmer 3.2s linear infinite;
 }
@@ -679,24 +682,30 @@ button,a,[class$="-tile"],[class$="-row"]{touch-action:manipulation}
   position:absolute;top:-15px;left:50%;transform:translateX(-50%);
   transform-origin:50% 3px;
   width:0;height:0;border-left:10px solid transparent;border-right:10px solid transparent;
-  border-top:18px solid var(--luck);z-index:10;
-  filter:drop-shadow(0 2px 10px rgba(182,156,255,.7));
+  border-top:18px solid #D9AE45;z-index:10;
+  filter:drop-shadow(0 2px 8px rgba(190,150,50,.75));
 }
 .wheel-ptr.land{animation:ptrLand .55s cubic-bezier(.3,1.6,.4,1) both}
 @keyframes ptrLand{0%{transform:translateX(-50%) rotate(-24deg)}55%{transform:translateX(-50%) rotate(7deg)}100%{transform:translateX(-50%) rotate(0)}}
-#wcanvas{display:block;box-shadow:0 0 0 3px rgba(255,255,255,.08),0 0 44px rgba(140,110,240,.22),0 24px 60px rgba(0,0,0,.6);border-radius:50%}
+#wcanvas{display:block;box-shadow:0 0 0 3px rgba(217,174,69,.35),0 0 44px rgba(218,166,32,.28),0 24px 60px rgba(60,50,20,.28);border-radius:50%}
+/* dark-mode variant: the original moody navy/violet wheel */
+:root[data-theme="dark"] #wheel-overlay{background:rgba(7,10,17,.95)}
+:root[data-theme="dark"] #wheel-dismiss-btn{background:rgba(255,255,255,.08);color:#F2F5FA;border-color:rgba(255,255,255,.16)}
+:root[data-theme="dark"] .wh-title{font-weight:250;background:linear-gradient(100deg,#C9B6FF 0%,#8B9DF0 40%,#5EE1C0 70%,#C9B6FF 100%) 0 0/220% 100%;-webkit-background-clip:text;background-clip:text}
+:root[data-theme="dark"] .wheel-ptr{border-top-color:var(--luck);filter:drop-shadow(0 2px 10px rgba(182,156,255,.7))}
+:root[data-theme="dark"] #wcanvas{box-shadow:0 0 0 3px rgba(255,255,255,.08),0 0 44px rgba(140,110,240,.22),0 24px 60px rgba(0,0,0,.6)}
 .luck-pulse{animation:luckPulse 1.5s ease 2}
 @keyframes luckPulse{0%,100%{box-shadow:0 0 0 0 rgba(182,156,255,0)}45%{box-shadow:0 0 30px 5px rgba(182,156,255,.4)}}
 .confetti-dot{position:fixed;border-radius:2px;pointer-events:none;z-index:600;animation:cfDrop 1.4s ease-out forwards}
 @keyframes cfDrop{0%{opacity:1;transform:translate(0,0) rotate(0deg) scale(1)}100%{opacity:0;transform:translate(var(--tx),var(--ty)) rotate(600deg) scale(0)}}
 
-/* ── Meals tab: always the DAY variant, in muted green ───────────
-   This tab has no dark mode by design. The class lives on <body>
-   (not #app) so fixed-position overlays — sheets, modals — opened
-   from this tab inherit the day tokens too. `:root body.meals`
-   outranks `:root[data-theme="light"]` so the green wins in both
-   global themes; the app-wide time-of-day switching for every
-   other tab is untouched. */
+/* ── Meals tab: day-language palette in muted green ──────────────
+   Follows the manual app-wide theme toggle: light = full-brightness
+   day; dark = the dimmed "paper under lamplight" variant below (its
+   own dark treatment, not the ink-navy the other tabs use). The
+   class lives on <body> so fixed overlays inherit the tokens too;
+   `:root body.meals` outranks `:root[data-theme="light"]` so the
+   green wins in both themes. */
 :root body.meals{
   --bg:#EEF3F9; --card:#FFFFFF; --surface:#FFFFFF; --sheet:#FFFFFF;
   --ink:#16202E; --ink-soft:#3F5168; --muted:#566A82;
@@ -861,6 +870,18 @@ body.meals .sheet-date-input{color-scheme:light}
   display:flex;align-items:center;gap:12px;padding:14px 18px;min-height:52px;
   color:var(--sky-deep);font-weight:600;font-size:14px;width:100%;text-align:left;
 }
+.rs-row{
+  display:flex;align-items:center;gap:11px;padding:10px 2px;min-height:60px;
+  border-bottom:1px solid var(--line);width:100%;text-align:left;cursor:pointer;
+}
+.rs-row:last-child{border-bottom:none}
+.rs-add{
+  width:44px;height:44px;flex:0 0 44px;border-radius:50%;
+  border:1px solid var(--sky-deep);color:var(--sky-deep);
+  display:flex;align-items:center;justify-content:center;
+}
+.rs-add.on{background:var(--acc-grad);border:none;color:var(--acc-ink)}
+.rs-add svg{width:18px;height:18px}
 .ckbk-row{
   display:flex;align-items:center;gap:12px;padding:12px 4px;min-height:56px;
   border-bottom:1px solid var(--line);width:100%;text-align:left;

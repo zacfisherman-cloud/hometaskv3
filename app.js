@@ -124,10 +124,10 @@ function loadLocal(){
   return null;
 }
 function save(){ HOUSEHOLD.set(S); saveLocal(); }
-function defaultState(){ return {name1:'Zac',name2:'Ella',setup:false,tasks:makeDefaultTasks(),completedLog:[],dates:{toVisit:[],visited:[]},email1:'',email2:'',
+function defaultState(){ return {name1:'Zac',name2:'Ella',setup:false,tasks:makeDefaultTasks(),completedLog:[],dates:{toVisit:[],visited:[],wheelLog:[]},email1:'',email2:'',
   // Meal Prep week state — small + hot, so it lives in the main doc alongside
   // everything else. Saved recipes themselves go in a subcollection (stage 3+).
-  mealPrep:{style:null, proteins:[], activeRecipeIds:[], grocery:[], dismissed:[]}}; }
+  mealPrep:{style:null, proteins:[], activeRecipeIds:[], grocery:[], dismissed:[], mealLog:[], loggedIds:[]}}; }
 
 // Deep-merges `source` onto `defaults` — a missing nested field (e.g. a
 // legacy doc without dates.visited) falls back to its default instead of
@@ -768,6 +768,8 @@ function histItem(l){
   </div>`;
 }
 
+let statsSubView = 'tasks';   // 'tasks' | 'meals' | 'dates'
+let statsMealsPeriod = 'all'; // 'week' | 'month' | 'all'
 function renderHistory(){
   document.getElementById('hdr').innerHTML = `
     <div class="flat-hdr">
@@ -775,10 +777,33 @@ function renderHistory(){
       <div class="flat-hdr-icon"><i data-lucide="bar-chart-2"></i></div>
     </div>`;
 
+  const toggle = `<div class="tasks-view-row" style="padding-bottom:6px">
+    <div class="tasks-view-chips">
+      <button class="tv-chip${statsSubView==='tasks'?' sel':''}" id="sv-tasks"><i data-lucide="list-checks"></i>Tasks</button>
+      <button class="tv-chip${statsSubView==='meals'?' sel':''}" id="sv-meals"><i data-lucide="chef-hat"></i>Meals</button>
+      <button class="tv-chip${statsSubView==='dates'?' sel':''}" id="sv-dates"><i data-lucide="heart"></i>Dates</button>
+    </div>
+  </div>`;
+
+  let body;
+  if(statsSubView === 'meals')      body = _statsMealsHTML();
+  else if(statsSubView === 'dates') body = _statsDatesHTML();
+  else                              body = _statsTasksHTML();
+
+  document.getElementById('panel').innerHTML = toggle + body;
+  lucide.createIcons();
+  document.getElementById('sv-tasks').onclick = ()=>{ statsSubView='tasks'; renderHistory(); };
+  document.getElementById('sv-meals').onclick = ()=>{ statsSubView='meals'; renderHistory(); };
+  document.getElementById('sv-dates').onclick = ()=>{ statsSubView='dates'; renderHistory(); };
+  document.querySelectorAll('[data-mp-period]').forEach(el => el.addEventListener('click', ()=>{
+    statsMealsPeriod = el.dataset.mpPeriod; renderHistory();
+  }));
+}
+
+function _statsTasksHTML(){
   const log = S.completedLog || [];
   if(!log.length){
-    document.getElementById('panel').innerHTML = `<div class="empty-state"><i data-lucide="bar-chart-2"></i><p>No history yet — complete your first task!</p></div>`;
-    lucide.createIcons(); return;
+    return `<div class="empty-state"><i data-lucide="bar-chart-2"></i><p>No history yet — complete your first task!</p></div>`;
   }
 
   const ws     = getWeekStart();
@@ -973,8 +998,117 @@ function renderHistory(){
     </div>`;
   }
 
-  document.getElementById('panel').innerHTML = html;
-  lucide.createIcons();
+  return html;
+}
+
+/* ── Stats · Meals: ranked proteins + meals from mealLog. A meal counts as
+   eaten only once ALL its grocery lines were checked while it was still in
+   the week's set (see recordMealCompletions). ── */
+function _statsMealsHTML(){
+  const log = (S.mealPrep?.mealLog) || [];
+  const periodChips = `<div class="pk-row" style="padding:2px 16px 0">
+    ${[['week','This week'],['month','This month'],['all','All time']].map(([id,lbl]) =>
+      `<button class="pk-chip${statsMealsPeriod===id?' on':''}" data-mp-period="${id}">${lbl}</button>`).join('')}
+  </div>`;
+  if(!log.length){
+    return periodChips + `<div class="empty-state">
+      <i data-lucide="chef-hat"></i>
+      <div class="es-title">No meals logged yet</div>
+      <p>A meal counts once all of its grocery lines are checked off — plan a week and get shopping.</p>
+    </div>`;
+  }
+  const now = new Date();
+  const weekCut = new Date(getWeekStart() + 'T00:00:00').getTime();
+  const monthCut = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+  const cut = statsMealsPeriod === 'week' ? weekCut : statsMealsPeriod === 'month' ? monthCut : 0;
+  const entries = log.filter(e => (e.at || 0) >= cut);
+
+  function rankedHTML(title, keyFn){
+    const map = {};
+    entries.forEach(e => { const k = keyFn(e); if(k) map[k] = (map[k] || 0) + 1; });
+    const top = Object.entries(map).sort((a,b) => b[1] - a[1]).slice(0, 6);
+    let h = `<div style="padding:0 16px"><div class="stats-hdr-row"><span class="stats-hdr-title">${title}</span></div>`;
+    if(!top.length){
+      h += `<div class="rc-none" style="margin:0">Nothing in this period yet.</div>`;
+    } else {
+      h += `<div class="top-list">${top.map(([name, count], i) => `
+        <div class="top-row">
+          <div class="top-rank">${i+1}</div>
+          <div class="top-name">${escapeHtml(name)}</div>
+          <div class="top-badge">${count}×</div>
+        </div>`).join('')}</div>`;
+    }
+    return h + `</div>`;
+  }
+  return periodChips
+    + rankedHTML('Most-eaten proteins', e => e.protein)
+    + rankedHTML('Most-eaten meals', e => e.name)
+    + `<div style="text-align:center;font-size:11px;color:var(--muted);padding:14px 32px 8px">Counted when every grocery line for the recipe was checked off.</div>`;
+}
+
+/* ── Stats · Dates: derived from dates.visited / toVisit / wheelLog ── */
+function _statsDatesHTML(){
+  const visited = (S.dates?.visited) || [];
+  const toVisit = (S.dates?.toVisit) || [];
+  const wheelLog = (S.dates?.wheelLog) || [];
+  if(!visited.length && !toVisit.length){
+    return `<div class="empty-state">
+      <i data-lucide="heart"></i>
+      <div class="es-title">No date nights yet</div>
+      <p>Add places on the Dates tab and give the wheel a spin.</p>
+    </div>`;
+  }
+  const now = new Date();
+  const monthCut = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+  const thisMonth = visited.filter(v => (v.visitedAt || 0) >= monthCut).length;
+  const last = visited.reduce((m, v) => Math.max(m, v.visitedAt || 0), 0);
+  const daysSince = last ? Math.floor((Date.now() - last) / 86400000) : null;
+  const lastTxt = last ? (daysSince === 0 ? 'Today' : daysSince === 1 ? 'Yesterday' : `${daysSince} days ago`) : '—';
+
+  // wheel follow-through: picks (tracked from first spin after this shipped)
+  // that later got marked visited, matched by normalized name
+  const visitedNames = new Set(visited.map(v => normKey(v.name || '')));
+  const followed = wheelLog.filter(w => visitedNames.has(normKey(w.name || ''))).length;
+  const followTxt = wheelLog.length
+    ? `${followed} of ${wheelLog.length} (${Math.round(followed / wheelLog.length * 100)}%)`
+    : 'No spins tracked yet';
+
+  let html = `<div style="padding:6px 16px 0"><div class="hist-card">
+    ${[
+      ['All-time date nights', String(visited.length)],
+      ['This month', String(thisMonth)],
+      ['On the to-visit list', String(toVisit.length)],
+      ['Last date night', lastTxt],
+      ['Wheel follow-through', followTxt],
+    ].map(([k, v]) => `
+      <div class="h2h-stat"><div class="h2h-stat-mid" style="text-align:left;flex:1">${k}</div>
+      <div class="h2h-stat-v" style="width:auto;min-width:52px">${escapeHtml(v)}</div></div>`).join('')}
+  </div></div>`;
+
+  // monthly trend — last 8 calendar months, same chart language as 8-Week Completions
+  const months = [];
+  for(let i = 7; i >= 0; i--){
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const next = new Date(now.getFullYear(), now.getMonth() - i + 1, 1);
+    months.push({
+      lbl: MONTHS[d.getMonth()],
+      n: visited.filter(v => (v.visitedAt || 0) >= d.getTime() && (v.visitedAt || 0) < next.getTime()).length,
+      cur: i === 0,
+    });
+  }
+  const maxN = Math.max(...months.map(m => m.n), 1);
+  html += `<div style="padding:0 16px">
+    <div class="stats-hdr-row"><span class="stats-hdr-title">Date nights by month</span></div>
+    <div class="week-chart">
+      <div class="wc-val-row">${months.map(m => `<div class="wc-val">${m.n || ''}</div>`).join('')}</div>
+      <div class="wc-chart-area">${months.map(m => `
+        <div class="wc-bar${m.cur ? ' wc-current' : ''}" style="height:${Math.max(3, Math.round(m.n / maxN * 72))}px"></div>`).join('')}
+      </div>
+      <div class="wc-lbl-row">${months.map(m => `<div class="wc-lbl">${m.cur ? 'Now' : m.lbl}</div>`).join('')}</div>
+    </div>
+  </div>
+  <div style="text-align:center;font-size:11px;color:var(--muted);padding:14px 32px 8px">Wheel follow-through counts spins from when tracking began — older spins weren't recorded.</div>`;
+  return html;
 }
 
 /* ════════════════════════════════════════ CALENDAR TAB */
@@ -1295,6 +1429,33 @@ function openWheelOverlay(places){
   const TAU = 2*Math.PI;
   const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
+  // Theme-aware palettes: the DEFAULT wheel is the light "casino" look —
+  // jewel-tone segments, gold rim/pointer, glossy highlight. The original
+  // dark, moody navy/violet wheel lives on as the dark-mode variant.
+  const isDarkWheel = document.documentElement.dataset.theme === 'dark';
+  const WHEEL = isDarkWheel ? {
+    segs: ['#1C2434','#242F45'],
+    segStroke: 'rgba(255,255,255,.07)',
+    label: '#C3D0E2', labelWin: '#F7F4FF',
+    winA: '#8B6CF0', winB: '#B69CFF', glowRGB: '160,128,255',
+    rim: 'rgba(255,255,255,.10)', rimW: 2,
+    hub: '#10131C', hubRing: 'rgba(182,156,255,.55)', hubDot: 'rgba(182,156,255,.9)',
+    gloss: 0,
+  } : {
+    segs: ['#D8484F','#1D9E6E','#2F63C9','#8B5CF6'], // ruby · emerald · sapphire · amethyst
+    segStroke: 'rgba(255,255,255,.35)',
+    label: '#FFFFFF', labelWin: '#4A3200',
+    winA: '#F6CE58', winB: '#DBA321', glowRGB: '218,166,32',
+    rim: '#D9AE45', rimW: 4,
+    hub: '#FFF7E6', hubRing: '#D9AE45', hubDot: '#C99722',
+    gloss: 1,
+  };
+  function segColor(i){
+    let c = WHEEL.segs[i % WHEEL.segs.length];
+    // avoid the last segment matching the first across the seam
+    if(i === n-1 && n > 1 && c === WHEEL.segs[0]) c = WHEEL.segs[1 % WHEEL.segs.length];
+    return c;
+  }
   // hl: index of the winning segment to highlight; glow: 0..1 pulse strength
   function drawWheel(rot, hl=-1, glow=0){
     ctx.clearRect(0,0,size,size);
@@ -1303,7 +1464,7 @@ function openWheelOverlay(places){
       const isWin = i===hl;
       ctx.save();
       if(isWin && glow>0){
-        ctx.shadowColor = `rgba(160,128,255,${(0.85*glow).toFixed(2)})`;
+        ctx.shadowColor = `rgba(${WHEEL.glowRGB},${(0.85*glow).toFixed(2)})`;
         ctx.shadowBlur = 30*glow;
       }
       ctx.beginPath();
@@ -1312,10 +1473,10 @@ function openWheelOverlay(places){
       ctx.closePath();
       if(isWin){
         const g = ctx.createLinearGradient(0,0,size,size);
-        g.addColorStop(0,'#8B6CF0'); g.addColorStop(1,'#B69CFF');
+        g.addColorStop(0,WHEEL.winA); g.addColorStop(1,WHEEL.winB);
         ctx.fillStyle = g;
       } else {
-        ctx.fillStyle = i%2===0 ? '#1C2434' : '#242F45';
+        ctx.fillStyle = segColor(i);
       }
       ctx.fill();
       ctx.restore();
@@ -1323,7 +1484,7 @@ function openWheelOverlay(places){
       ctx.moveTo(cx,cy);
       ctx.arc(cx,cy,r,sa,sa+seg);
       ctx.closePath();
-      ctx.strokeStyle='rgba(255,255,255,.07)';
+      ctx.strokeStyle=WHEEL.segStroke;
       ctx.lineWidth=1;
       ctx.stroke();
       // label
@@ -1331,30 +1492,49 @@ function openWheelOverlay(places){
       ctx.translate(cx,cy);
       ctx.rotate(rot+(i+.5)*seg - Math.PI/2);
       ctx.textAlign='right';
-      ctx.fillStyle = isWin ? '#F7F4FF' : '#C3D0E2';
+      ctx.fillStyle = isWin ? WHEEL.labelWin : WHEEL.label;
       const fs=Math.max(9,Math.min(13,170/n));
       ctx.font=`600 ${fs}px -apple-system,BlinkMacSystemFont,sans-serif`;
+      if(WHEEL.gloss){ ctx.shadowColor='rgba(0,0,0,.35)'; ctx.shadowBlur=3; }
       const lbl=places[i].name.length>15?places[i].name.slice(0,13)+'…':places[i].name;
       ctx.fillText(lbl,r-12,fs/3);
       ctx.restore();
     }
+    // glossy sheen (casino variant): soft top-left highlight over the face
+    if(WHEEL.gloss){
+      ctx.save();
+      ctx.beginPath(); ctx.arc(cx,cy,r,0,TAU); ctx.clip();
+      const sheen = ctx.createRadialGradient(cx - r*0.45, cy - r*0.55, r*0.1, cx, cy, r*1.15);
+      sheen.addColorStop(0,'rgba(255,255,255,.30)');
+      sheen.addColorStop(0.45,'rgba(255,255,255,.06)');
+      sheen.addColorStop(1,'rgba(255,255,255,0)');
+      ctx.fillStyle = sheen;
+      ctx.fillRect(0,0,size,size);
+      ctx.restore();
+      // brass inner ring just inside the rim
+      ctx.beginPath();
+      ctx.arc(cx,cy,r-5,0,TAU);
+      ctx.strokeStyle='rgba(255,244,214,.55)';
+      ctx.lineWidth=1.5;
+      ctx.stroke();
+    }
     // outer rim
     ctx.beginPath();
     ctx.arc(cx,cy,r,0,TAU);
-    ctx.strokeStyle='rgba(255,255,255,.10)';
-    ctx.lineWidth=2;
+    ctx.strokeStyle=WHEEL.rim;
+    ctx.lineWidth=WHEEL.rimW;
     ctx.stroke();
     // center hub
     ctx.beginPath();
     ctx.arc(cx,cy,15,0,TAU);
-    ctx.fillStyle='#10131C';
+    ctx.fillStyle=WHEEL.hub;
     ctx.fill();
-    ctx.strokeStyle='rgba(182,156,255,.55)';
+    ctx.strokeStyle=WHEEL.hubRing;
     ctx.lineWidth=2;
     ctx.stroke();
     ctx.beginPath();
     ctx.arc(cx,cy,4,0,TAU);
-    ctx.fillStyle='rgba(182,156,255,.9)';
+    ctx.fillStyle=WHEEL.hubDot;
     ctx.fill();
   }
 
@@ -1425,6 +1605,9 @@ function openWheelOverlay(places){
   function spinDone(winner){
     fireConfetti();
     commitChange(state => {
+      state.dates.wheelLog = state.dates.wheelLog || [];
+      state.dates.wheelLog.push({name: winner.name, at: Date.now()});
+      if(state.dates.wheelLog.length > 300) state.dates.wheelLog = state.dates.wheelLog.slice(-300);
       state.dates.toVisit.forEach(p=>p.picked=false);
       const wi = state.dates.toVisit.findIndex(p=>p.id===winner.id);
       if(wi>0){ const [w]=state.dates.toVisit.splice(wi,1); state.dates.toVisit.unshift(w); }
@@ -1804,9 +1987,18 @@ function startRecipesSync(){
 function savedMatches(mp){
   const keys = mp.proteins.map(normalizeProtein);
   return mealRecipes.filter(r =>
-    keys.includes(normalizeProtein(r.protein || '')) &&
+    (!keys.length || keys.includes(normalizeProtein(r.protein || ''))) &&
     (!Array.isArray(r.styles) || !r.styles.length || r.styles.includes(mp.style))
   );
+}
+// Loose search across title/protein/style names: every query token must
+// appear somewhere in the haystack (case-insensitive).
+function recipeMatchesQuery(r, q){
+  const tokens = (q || '').toLowerCase().split(/\s+/).filter(Boolean);
+  if(!tokens.length) return true;
+  const styleNames = (r.styles || []).map(id => (MEAL_STYLES.find(s => s.id === id) || {}).name || '').join(' ');
+  const hay = `${r.name || ''} ${r.protein || ''} ${styleNames}`.toLowerCase();
+  return tokens.every(t => hay.includes(t));
 }
 
 function renderMeals(){
@@ -1873,8 +2065,9 @@ function _recipesViewHTML(mp){
         return `<button class="pk-chip${on?' on':''}${dis?' dis':''}" data-protein="${escapeHtml(p)}">${escapeHtml(p)}</button>`;
       }).join('')}
     </div>
-    <button class="btn-primary mp-cta" id="mp-find" ${count ? '' : 'disabled'}>Find recipes <i data-lucide="search"></i></button>
-    ${mealResults ? _resultsInlineHTML(mp) : `<div style="text-align:center;font-size:11.5px;color:var(--muted);padding:0 32px 8px">Veg stays wide open — recipes bring their own variety.</div>`}
+    <button class="btn-primary mp-cta" id="mp-find">Find recipes <i data-lucide="search"></i></button>
+    ${_savedListHTML(mp)}
+    ${_aiSectionHTML(mp)}
     ${_cookbookRowHTML()}`;
 }
 function _cookbookRowHTML(){
@@ -1901,46 +2094,53 @@ function _recipeCardHTML(r, kind, inWeek, ref){
     </div>
   </div>`;
 }
-function _resultsInlineHTML(mp){
+// Saved matches render permanently under the picker and re-filter live on
+// every protein-chip tap (slicer behavior) — no button press involved.
+function _savedListHTML(mp){
   const saved = savedMatches(mp);
   const weekCount = (mp.activeRecipeIds || []).length;
   let html = `<div id="mp-results">
-    <div class="weekbar" style="margin-top:16px">
+    <div class="weekbar" style="margin-top:6px">
       <span><b>${weekCount} recipe${weekCount===1?'':'s'}</b> in this week's set</span>
       ${weekCount ? '<button class="wb-clear" id="mp-clear">Clear</button>' : ''}
     </div>
-    <div class="seg-lbl" style="margin:18px 22px 8px">From your saved recipes</div>`;
+    <div class="seg-lbl" style="margin:18px 22px 8px;display:flex;justify-content:space-between">
+      <span>From your saved recipes</span>
+      <span style="text-transform:none;letter-spacing:0;color:var(--sky-deep)">${saved.length} match${saved.length===1?'':'es'}</span>
+    </div>`;
   if(saved.length){
     saved.forEach(r => { html += _recipeCardHTML(r, 'saved', (mp.activeRecipeIds||[]).includes(r.id), r.id); });
-    if(!mealResults.aiRequested){
-      html += `<button class="rc-btn add" id="mp-more-ai" style="margin:12px 16px 0;width:calc(100% - 32px)"><i data-lucide="sparkles"></i>&nbsp;Get AI suggestions too</button>`;
-    }
-  } else if(!mealResults.aiRequested){
-    // No saved match: offer the choice — never burn an AI call automatically.
+  } else if(!mealResults?.aiRequested){
     html += `<div class="rc-none" style="border-style:solid">
       No saved recipe matches this combo. What would you like to do?
       <div style="display:flex;gap:8px;margin-top:12px;width:100%">
         <button class="rc-btn" id="mp-paste-instead" style="flex:1">Find one &amp; paste it</button>
-        <button class="rc-btn add" id="mp-ai-go" style="flex:1"><i data-lucide="sparkles"></i>&nbsp;AI suggestion</button>
+        ${mp.proteins.length ? '<button class="rc-btn add" id="mp-ai-go" style="flex:1"><i data-lucide="sparkles"></i>&nbsp;AI suggestion</button>' : ''}
       </div>
     </div>`;
   }
-  if(mealResults.aiRequested){
-    html += `<div class="seg-lbl" style="margin:20px 22px 8px">Suggested for this combo</div>`;
-    if(mealResults.loading){
-      html += `<div class="rc-none loading-row"><span class="ld-dot"></span><span class="ld-dot"></span><span class="ld-dot"></span>&nbsp;Asking the kitchen…</div>`;
-    } else if(mealResults.error){
-      html += `<div class="rc-none err">
-        ${escapeHtml(mealResults.error)}
-        <button class="rc-btn add" id="mp-retry" style="margin-top:10px;max-width:180px">Try again</button>
-      </div>`;
-    } else if(!mealResults.suggested.length){
-      html += `<div class="rc-none">Nothing usable came back — try again or tweak the proteins.</div>`;
-    } else {
-      mealResults.suggested.forEach((r, i) => { html += _recipeCardHTML(r, 'sugg', false, String(i)); });
-    }
+  if(saved.length && !mealResults?.aiRequested && mp.proteins.length){
+    html += `<button class="rc-btn add" id="mp-more-ai" style="margin:12px 16px 0;width:calc(100% - 32px)"><i data-lucide="sparkles"></i>&nbsp;Get AI suggestions too</button>`;
   }
   return html + `</div>`;
+}
+// AI suggestions stay a separate, explicit opt-in — untouched by the slicer.
+function _aiSectionHTML(mp){
+  if(!mealResults?.aiRequested) return '';
+  let html = `<div class="seg-lbl" style="margin:20px 22px 8px">Suggested for this combo</div>`;
+  if(mealResults.loading){
+    html += `<div class="rc-none loading-row"><span class="ld-dot"></span><span class="ld-dot"></span><span class="ld-dot"></span>&nbsp;Asking the kitchen…</div>`;
+  } else if(mealResults.error){
+    html += `<div class="rc-none err">
+      ${escapeHtml(mealResults.error)}
+      <button class="rc-btn add" id="mp-retry" style="margin-top:10px;max-width:180px">Try again</button>
+    </div>`;
+  } else if(!mealResults.suggested.length){
+    html += `<div class="rc-none">Nothing usable came back — try again or tweak the proteins.</div>`;
+  } else {
+    mealResults.suggested.forEach((r, i) => { html += _recipeCardHTML(r, 'sugg', false, String(i)); });
+  }
+  return html;
 }
 async function fetchSuggestions(mp){
   if(MEAL_PROXY_URL.includes('YOUR-SUBDOMAIN')){
@@ -2013,6 +2213,24 @@ function prettyQty(qty, unit){
   const q = Math.round(qty*100)/100;
   return q + (unit ? ' ' + unit : '');
 }
+// A recipe logs as "eaten" the moment ALL of its derived grocery lines are
+// checked while it is still in the week's set. loggedIds guards against
+// duplicate logging within a cycle; it is pruned when a recipe leaves the
+// set (so a later week can log it again) while mealLog entries persist.
+function recordMealCompletions(state){
+  const mp = state.mealPrep;
+  mp.mealLog = mp.mealLog || [];
+  mp.loggedIds = mp.loggedIds || [];
+  (mp.activeRecipeIds || []).forEach(rid => {
+    if(mp.loggedIds.includes(rid)) return;
+    const lines = (mp.grocery || []).filter(g => !g.manual && (g.sources || []).includes(rid));
+    if(!lines.length || !lines.every(l => l.checked)) return;
+    const r = mealRecipes.find(x => x.id === rid);
+    if(!r) return;
+    mp.mealLog.push({recipeId: rid, name: r.name, protein: r.protein || '', at: Date.now()});
+    mp.loggedIds.push(rid);
+  });
+}
 function grocerySort(a, b){
   return (a.checked - b.checked) || (a.manual - b.manual) || a.name.localeCompare(b.name);
 }
@@ -2074,6 +2292,7 @@ function regenerateGrocery(state, extraById){
   old.forEach(it => { if(it.manual) next.push(it); });
   next.sort(grocerySort);
   mp.grocery = next;
+  mp.loggedIds = (mp.loggedIds || []).filter(rid => (mp.activeRecipeIds || []).includes(rid));
 }
 
 function _grocerySrcLabel(item){
@@ -2121,6 +2340,7 @@ function _bindGroceryHandlers(mp){
     commitChange(state => {
       const it = (state.mealPrep.grocery || []).find(g => g.id === id);
       if(it){ it.checked = !it.checked; state.mealPrep.grocery.sort(grocerySort); }
+      recordMealCompletions(state);
     });
     renderMeals();
   }));
@@ -2135,6 +2355,7 @@ function _bindGroceryHandlers(mp){
         state.mealPrep.dismissed = state.mealPrep.dismissed || [];
         if(!state.mealPrep.dismissed.includes(it.gk)) state.mealPrep.dismissed.push(it.gk);
       }
+      recordMealCompletions(state);
     });
     renderMeals();
   }));
@@ -2200,12 +2421,7 @@ function _bindMealHandlers(mp){
     renderMeals();
   }));
   const find = document.getElementById('mp-find');
-  if(find) find.onclick = ()=>{
-    // Saved matches only — AI is opt-in from the results, never automatic.
-    mealResults = {aiRequested:false, loading:false, error:null, suggested:[]};
-    renderMeals();
-    document.getElementById('mp-results')?.scrollIntoView({behavior:'smooth', block:'start'});
-  };
+  if(find) find.onclick = ()=> openRecipeSearchSheet(true);
   const requestAI = ()=>{
     mealResults = {aiRequested:true, loading:true, error:null, suggested:[]};
     renderMeals();
@@ -2221,7 +2437,7 @@ function _bindMealHandlers(mp){
   const pasteInstead = document.getElementById('mp-paste-instead');
   if(pasteInstead) pasteInstead.onclick = openPasteRecipeSheet;
   const ckbk = document.getElementById('mp-cookbook');
-  if(ckbk) ckbk.onclick = openCookbookSheet;
+  if(ckbk) ckbk.onclick = ()=> openRecipeSearchSheet(false);
   const clear = document.getElementById('mp-clear');
   if(clear) clear.onclick = ()=>{ commitChange(state => { state.mealPrep.activeRecipeIds = []; regenerateGrocery(state); }); renderMeals(); };
 
@@ -2379,31 +2595,70 @@ function openPasteRecipeSheet(){
     };
   });
 }
-function openCookbookSheet(){
-  const rows = mealRecipes.map(r => {
+// One sheet serves both entry points: the "Find recipes" spotlight (opens
+// with the search focused) and the "Saved recipes" browser row. Rows filter
+// live across title/protein/style; the basket button behaves exactly like
+// "+ Add to week" on the main screen (week set + grocery consolidation).
+function openRecipeSearchSheet(focusSearch){
+  function rowHTML(r){
+    const inWeek = (S.mealPrep?.activeRecipeIds || []).includes(r.id);
     const meta = [r.serves ? `Serves ${r.serves}` : '', r.minutes ? `${r.minutes} min` : '', r.source==='ai' ? 'AI' : ''].filter(Boolean).join(' · ');
-    return `<button class="ckbk-row" data-ckbk="${r.id}">
+    return `<div class="rs-row" data-rs-view="${r.id}">
       <div class="g-info">
         <div class="g-name">${escapeHtml(r.name)}</div>
         <div class="g-src">${meta ? escapeHtml(meta) : '&nbsp;'}</div>
       </div>
       <span class="rc-chip p">${escapeHtml(r.protein || '?')}</span>
-      <i data-lucide="chevron-right" style="width:15px;height:15px;color:var(--muted)"></i>
-    </button>`;
-  }).join('');
+      <button class="rs-add${inWeek ? ' on' : ''}" data-rs-week="${r.id}" aria-label="${inWeek ? 'In this week' : 'Add to grocery list'}">
+        <i data-lucide="${inWeek ? 'check' : 'shopping-basket'}"></i>
+      </button>
+    </div>`;
+  }
+  function listHTML(q){
+    const rows = mealRecipes.filter(r => recipeMatchesQuery(r, q));
+    if(!mealRecipes.length) return `<div class="rc-none" style="margin:0">Nothing saved yet — paste a recipe or adopt an AI suggestion.</div>`;
+    if(!rows.length) return `<div class="rc-none" style="margin:0">No recipes match “${escapeHtml(q)}”.</div>`;
+    return rows.map(rowHTML).join('');
+  }
+  function bindRows(){
+    document.querySelectorAll('[data-rs-view]').forEach(el => el.addEventListener('click', e => {
+      if(e.target.closest('[data-rs-week]')) return;
+      const r = mealRecipes.find(x => x.id === el.dataset.rsView);
+      if(r) openRecipeView(r);
+    }));
+    document.querySelectorAll('[data-rs-week]').forEach(el => el.addEventListener('click', e => {
+      e.stopPropagation();
+      const id = el.dataset.rsWeek;
+      commitChange(state => {
+        const arr = state.mealPrep.activeRecipeIds;
+        const i = arr.indexOf(id);
+        if(i >= 0) arr.splice(i, 1); else arr.push(id);
+        regenerateGrocery(state);
+      });
+      const on = el.classList.toggle('on');
+      el.innerHTML = `<i data-lucide="${on ? 'check' : 'shopping-basket'}"></i>`;
+      lucide.createIcons();
+      if(currentTab === 'meals') renderMeals(); // keep the weekbar behind the sheet current
+    }));
+  }
   openSheet(`
     <div class="grabber"></div>
     <div class="sheet-head">
       <div class="sheet-title">Saved recipes</div>
       <button class="sheet-close" id="sh-close"><i data-lucide="x"></i></button>
     </div>
-    ${rows || `<div class="rc-none" style="margin:0">Nothing saved yet — paste a recipe or adopt an AI suggestion.</div>`}`,
+    <input class="plain-input" id="rs-q" placeholder="Search title, protein, style…" autocomplete="off">
+    <div id="rs-list">${listHTML('')}</div>`,
   ()=>{
     document.getElementById('sh-close').onclick = closeSheet;
-    document.querySelectorAll('[data-ckbk]').forEach(el => el.addEventListener('click', ()=>{
-      const r = mealRecipes.find(x => x.id === el.dataset.ckbk);
-      if(r) openRecipeView(r);
-    }));
+    const q = document.getElementById('rs-q');
+    q.addEventListener('input', ()=>{
+      document.getElementById('rs-list').innerHTML = listHTML(q.value.trim());
+      lucide.createIcons();
+      bindRows();
+    });
+    bindRows();
+    if(focusSearch) q.focus();
   });
 }
 
@@ -2518,6 +2773,7 @@ function switchTab(tab){
   currentRoomDetail = null;
   tasksSubView = 'tasks';
   mealSubView = 'recipes';
+  statsSubView = 'tasks';
   mealStylePicking = false;
   mealResults = null;
   // Meals is day-only: the body class forces the day token set (dimmed at
