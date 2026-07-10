@@ -346,6 +346,37 @@ button,a,[class$="-tile"],[class$="-row"]{touch-action:manipulation}
 }
 .tab-add-btn:active{transform:scale(.94)}
 .tab-add-btn svg{width:19px;height:19px}
+.tvr-actions{display:flex;align-items:center;gap:8px}
+.tab-hist-btn{
+  width:44px;height:44px;border-radius:50%;flex:0 0 44px;
+  background:var(--card);border:1px solid var(--line);color:var(--muted);
+  display:flex;align-items:center;justify-content:center;transition:transform .12s;
+}
+.tab-hist-btn:active{transform:scale(.94)}
+.tab-hist-btn svg{width:19px;height:19px}
+
+/* ── completed history (Tasks ▸ history sub-view) ────────────── */
+.hist-entry{
+  display:flex;align-items:center;gap:12px;
+  background:var(--card);border:1px solid var(--line);border-radius:var(--r-card);
+  padding:13px 14px;margin:0 16px 10px;
+}
+.he-icon{width:34px;height:34px;border-radius:50%;flex:0 0 34px;background:var(--green-soft);display:flex;align-items:center;justify-content:center}
+.he-icon svg{width:17px;height:17px;color:var(--green)}
+.he-main{flex:1;min-width:0}
+.he-name{font-weight:600;font-size:14.5px;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.he-meta{display:flex;align-items:center;gap:7px;margin-top:4px}
+.he-who{font-size:11.5px;font-weight:600;color:var(--muted);display:flex;align-items:center;gap:4px}
+.he-who svg{width:11px;height:11px}
+.he-dc svg{width:12px;height:12px;color:var(--gold)}
+.he-restore{
+  height:34px;padding:0 13px;border-radius:var(--r-pill);flex:0 0 auto;
+  background:var(--sky-tint);border:1px solid var(--line);color:var(--sky-deep);
+  font-weight:600;font-size:12.5px;display:flex;align-items:center;gap:6px;
+  transition:transform .12s;
+}
+.he-restore:active{transform:scale(.95)}
+.he-restore svg{width:14px;height:14px}
 
 /* ── history / stats ─────────────────────────────────────────── */
 .hist-card{background:var(--card);border:1px solid var(--line);border-radius:var(--r-card);padding:17px 18px;margin:0 16px 12px}

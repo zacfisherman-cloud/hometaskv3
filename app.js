@@ -293,10 +293,14 @@ function renderTasks(){
   const inRooms = tasksSubView==='rooms'||tasksSubView==='roomDetail';
   const inHist  = tasksSubView==='history';
   const prog = weekProgress();
-  if(inRooms){
-    // Rooms gets its own compact, static header: the weekly ring is Tasks-view
-    // context, and the collapsing behavior has nowhere to go on a short grid —
-    // it caused a visible layout glitch. A one-line count keeps the context.
+  if(inRooms || inHist){
+    // Rooms and Completed-history get the compact, static header: the weekly
+    // ring is Tasks-view context, and the collapsing behavior has nowhere to
+    // go on a short grid — it caused a visible layout glitch. A one-line
+    // count keeps the context.
+    const sub = inHist
+      ? `<b>${(S.completedLog||[]).length}</b> completed all-time`
+      : `<b>${prog.done} of ${prog.total}</b> done this week`;
     document.getElementById('hdr').innerHTML = `
       <div class="tasks-hdr compact">
         <div class="hh-top">
@@ -306,7 +310,7 @@ function renderTasks(){
           </div>
           <div class="hh-avatar">${escapeHtml((myName()||'?')[0].toUpperCase())}</div>
         </div>
-        <div class="compact-sub"><b>${prog.done} of ${prog.total}</b> done this week</div>
+        <div class="compact-sub">${sub}</div>
       </div>`;
     // The compact header never collapses — clear any collapse state carried
     // over from the Tasks list (e.g. arriving via the mini-header's Rooms tab).
@@ -373,13 +377,22 @@ function _tabsRowHTML(activeTab){
       <button class="tv-chip${t?' sel':''}" id="view-tasks"><i data-lucide="list-checks"></i>Tasks</button>
       <button class="tv-chip${r?' sel':''}" id="view-rooms"><i data-lucide="layout-grid"></i>Rooms</button>
     </div>
-    <button class="tab-add-btn" id="hdr-add"><i data-lucide="plus"></i></button>
+    <div class="tvr-actions">
+      <button class="tab-hist-btn" id="hdr-hist" aria-label="Completed history"><i data-lucide="history"></i></button>
+      <button class="tab-add-btn" id="hdr-add"><i data-lucide="plus"></i></button>
+    </div>
   </div>`;
 }
 function _bindTabListeners(){
   const a=document.getElementById('hdr-add'); if(a) a.onclick=openAddTaskSheet;
   const t=document.getElementById('view-tasks'); if(t) t.onclick=()=>{ tasksSubView='tasks'; currentRoomDetail=null; renderTasks(); };
   const r=document.getElementById('view-rooms'); if(r) r.onclick=()=>{ tasksSubView='rooms'; currentRoomDetail=null; renderTasks(); };
+  const h=document.getElementById('hdr-hist'); if(h) h.onclick=()=>{
+    tasksSubView='history'; currentRoomDetail=null; renderTasks();
+    // A sub-view change is real navigation — start at the top (setPanelHTML
+    // preserves scroll and its guard swallows this programmatic jump).
+    document.getElementById('panel').scrollTop = 0;
+  };
 }
 function _renderTasksPanel(){
   const t = todayStr();
@@ -411,36 +424,103 @@ function _renderTasksPanel(){
   document.querySelectorAll('[data-skip]').forEach(btn=>btn.addEventListener('click',e=>{ e.stopPropagation(); skipTask(btn.dataset.skip); }));
   document.querySelectorAll('[data-task-card]').forEach(card=>card.addEventListener('click',e=>{ if(e.target.closest('button,a')) return; openTaskDetail(card.dataset.taskCard); }));
 }
-function _renderHistoryPanel(){
-  const log = S.completedLog||[];
-  if(!log.length){
-    setPanelHTML(`<div class="empty-state"><i data-lucide="history"></i><p>No history yet — complete your first task!</p></div>`);
-    lucide.createIcons(); return;
-  }
-  const byWeek = {};
-  log.forEach(l=>{ const ws=getWeekStart(new Date(l.completedAt+'T00:00:00')); (byWeek[ws]=byWeek[ws]||[]).push(l); });
-  const ws = getWeekStart();
-  const prog = weekProgress();
-  const thisWeekItems = byWeek[ws]||[];
-  let html = '<div style="padding-top:6px"></div>';
-  html += `<div class="hist-card">
-    <div class="hist-week"><span>${weekLabel(ws)} <b style="color:var(--sky-deep)">· This week</b></span><span class="hist-pct">${prog.pct}%</span></div>
-    <div class="hist-bar"><i style="width:${prog.pct}%"></i></div>
-    <div style="font-size:13px;font-weight:600;color:var(--muted);margin-bottom:8px">${prog.done} done · ${prog.total-prog.done} pending</div>
-    <div class="hist-items">
-      ${thisWeekItems.map(l=>histItem(l)).join('')}
-      ${!thisWeekItems.length?'<div style="color:var(--muted);font-size:13.5px;font-weight:600">None completed yet this week</div>':''}
+// Past-date label for the completed log (dayLabelFor is future-oriented).
+function histDayLabel(dateStr){
+  const t = todayStr();
+  if(dateStr === t) return 'Today';
+  if(dateStr === addDays(t,-1)) return 'Yesterday';
+  const d = new Date(dateStr+'T00:00:00');
+  return `${DAYS[d.getDay()]}, ${d.getDate()} ${MONTHS[d.getMonth()]}`;
+}
+
+function histEntryHTML(l){
+  const dc = {Easy:'hi-easy', Medium:'hi-medium', Hard:'hi-hard'}[l.difficulty]||'hi-easy';
+  return `<div class="hist-entry">
+    <div class="he-icon"><i data-lucide="check-circle-2"></i></div>
+    <div class="he-main">
+      <div class="he-name">${escapeHtml(l.name)}</div>
+      <div class="he-meta">
+        <span class="hi-diff ${dc}">${l.difficulty||'Easy'}</span>
+        <span class="he-who"><i data-lucide="user"></i>${escapeHtml(l.assignee||'')}</span>
+        ${l.isDeepClean?'<span class="he-dc"><i data-lucide="sparkles"></i></span>':''}
+      </div>
     </div>
+    <button class="he-restore" data-restore="${l.id}"><i data-lucide="undo-2"></i>Restore</button>
   </div>`;
-  Object.keys(byWeek).filter(w=>w!==ws).sort().reverse().forEach(weekStart=>{
-    const items=byWeek[weekStart];
-    html+=`<div class="hist-card">
-      <div class="hist-week"><span>${weekLabel(weekStart)}</span><span style="font-weight:700;color:var(--green)">${items.length} done</span></div>
-      <div class="hist-items">${items.map(l=>histItem(l)).join('')}</div>
-    </div>`;
-  });
+}
+
+function _renderHistoryPanel(){
+  // Entries written before the log carried ids can't be targeted by Restore —
+  // backfill ids once so every row is addressable.
+  if((S.completedLog||[]).some(l=>!l.id)){
+    commitChange(state => { (state.completedLog||[]).forEach(l=>{ if(!l.id) l.id=uid(); }); });
+  }
+  const log = S.completedLog||[];
+  let html = `<button class="room-back" id="hist-back-btn"><i data-lucide="arrow-left"></i>Completed</button>`;
+  if(!log.length){
+    html += `<div class="empty-state"><i data-lucide="history"></i><p>Nothing completed yet — finished tasks will show up here.</p></div>`;
+  } else {
+    // Most recent first. completedAt is date-only, so within the same day the
+    // later array entry (pushed later) is the more recent completion.
+    const entries = log.map((l,i)=>({l,i}))
+      .sort((a,b)=> b.l.completedAt.localeCompare(a.l.completedAt) || b.i - a.i);
+    let curDay = null;
+    entries.forEach(({l})=>{
+      if(l.completedAt !== curDay){
+        curDay = l.completedAt;
+        html += `<div class="day-header">
+          <div class="day-label">${histDayLabel(curDay)}</div>
+          <div class="day-date-pill">${shortDateStr(curDay)}</div>
+        </div>`;
+      }
+      html += histEntryHTML(l);
+    });
+  }
   setPanelHTML(html);
   lucide.createIcons();
+  document.getElementById('hist-back-btn').onclick = ()=>{
+    tasksSubView='tasks'; renderTasks();
+    document.getElementById('panel').scrollTop = 0;
+  };
+  document.querySelectorAll('[data-restore]').forEach(btn=>
+    btn.addEventListener('click', ()=>restoreCompletion(btn.dataset.restore)));
+}
+
+// Undo a completion. For the task's LATEST completion this rewinds the
+// schedule too: dueDate goes back to what it was when "Done" was tapped
+// (prevDueDate, stored at completion time), so the pending occurrence returns
+// exactly as if it was never marked done — even if that makes it overdue.
+// For an OLDER entry (the task has been completed again since), the newer
+// completion owns the current schedule, so undo only removes the log entry
+// and the stats correct themselves. Legacy entries without prevDueDate fall
+// back to stepping dueDate back by the task's current frequency.
+function restoreCompletion(logId){
+  const list = S.completedLog||[];
+  const idx = list.findIndex(l=>l.id===logId);
+  if(idx < 0) return;
+  const entry = list[idx];
+  const task = S.tasks.find(t=>t.id===entry.taskId);
+  const isLatest = !list.some((l,i)=> i>idx && l.taskId===entry.taskId);
+  let msg;
+  if(!task)          msg = `"${entry.name}" no longer exists as a task — this will just remove the history entry.`;
+  else if(!isLatest) msg = `"${entry.name}" has been completed again since — this removes just this history entry without changing its schedule.`;
+  else {
+    const revertTo = entry.prevDueDate || addDays(task.dueDate, -getFreqDays(task));
+    msg = `Restore "${entry.name}"? It goes back to the pending list, due ${shortDateStr(revertTo)}.`;
+  }
+  if(!confirm(msg)) return;
+  commitChange(state => {
+    const li = (state.completedLog||[]).findIndex(l=>l.id===logId);
+    if(li < 0) return;
+    const e = state.completedLog[li];
+    const latest = !state.completedLog.some((l,j)=> j>li && l.taskId===e.taskId);
+    state.completedLog.splice(li, 1);
+    if(latest){
+      const tk = state.tasks.find(t=>t.id===e.taskId);
+      if(tk) tk.dueDate = e.prevDueDate || addDays(tk.dueDate, -getFreqDays(tk));
+    }
+  });
+  renderTasks();
 }
 function _renderRoomsPanel(){
   let html = _tabsRowHTML('rooms');
@@ -520,9 +600,11 @@ function completeTask(id){
   const logId = uid(), completedAt = todayStr();
   commitChange(state => {
     const task = state.tasks.find(t=>t.id===id); if(!task) return;
+    // prevDueDate lets the Completed-history "Restore" rewind the schedule to
+    // exactly the due date this completion advanced it from.
     state.completedLog.push({
       id:logId, taskId:id, name:task.name,
-      completedAt, difficulty:task.difficulty,
+      completedAt, prevDueDate:task.dueDate, difficulty:task.difficulty,
       assignee:task.assignee, isDeepClean:task.isDeepClean
     });
     task.dueDate = addDays(task.dueDate, getFreqDays(task));
@@ -3626,8 +3708,8 @@ function initScrollCollapse(){
     // it emits must sync position only, never flip the state back (see above).
     if(performance.now() < hdrAnimUntil) return;
     if(currentTab !== 'tasks') return;
-    // Rooms/room-detail use the compact static header — no collapse there.
-    if(tasksSubView === 'rooms' || tasksSubView === 'roomDetail') return;
+    // Rooms/room-detail/history use the compact static header — no collapse.
+    if(tasksSubView !== 'tasks') return;
     if(delta > 0){
       // Scrolling down — reset upward accumulator and collapse when past threshold
       upAccum = 0;
