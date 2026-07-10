@@ -223,6 +223,10 @@ button,a,[class$="-tile"],[class$="-row"]{touch-action:manipulation}
   pointer-events:none;
 }
 #mini-hdr.visible{transform:translateY(0);pointer-events:auto;opacity:1}
+/* The mini-header carries its own Tasks/Rooms toggle + add button — the
+   in-panel toggle row must never be visible at the same time (double-toggle
+   guard: a scrollTop clamp can leave the panel at the top while collapsed). */
+#mini-hdr.visible ~ #panel .tasks-view-row{visibility:hidden}
 .mh-tabs{display:flex;gap:4px;background:var(--sky-tint);border:1px solid var(--line);border-radius:var(--r-pill);padding:4px}
 .mh-tab{
   height:36px;padding:0 16px;border-radius:var(--r-pill);

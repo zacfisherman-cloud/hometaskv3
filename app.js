@@ -343,6 +343,28 @@ function renderTasks(){
   else if(tasksSubView==='roomDetail'&&currentRoomDetail) _renderRoomDetailPanel(currentRoomDetail);
   else                                            _renderTasksPanel();
   updateMiniHdr();
+  // A re-render can shrink the list under a collapsed header (task completed,
+  // partner sync): the browser clamps scrollTop toward 0, and those clamp
+  // events are swallowed by panelScrollGuardUntil — stranding the mini-header
+  // stacked over the in-panel Tasks/Rooms toggle row with no scroll room left
+  // to ever expand out of it. Snap instantly back to the expanded state
+  // whenever the collapsed state no longer matches the real scroll position.
+  if(isHdrCollapsed){
+    const panel = document.getElementById('panel');
+    if(panel.scrollTop <= 60 || panel.scrollHeight - panel.clientHeight <= 60){
+      isHdrCollapsed = false;
+      const hdr = document.querySelector('#hdr .tasks-hdr');
+      if(hdr){
+        hdr.classList.remove('collapsing');
+        hdr.style.transition='none';
+        hdr.style.height=''; hdr.style.paddingTop=''; hdr.style.paddingBottom='';
+      }
+      document.getElementById('mini-hdr')?.classList.remove('visible');
+      panel.style.transition='none';
+      panel.style.paddingTop='';
+      requestAnimationFrame(()=>{ panel.style.transition=''; if(hdr) hdr.style.transition=''; });
+    }
+  }
 }
 function _tabsRowHTML(activeTab){
   const t = activeTab==='tasks', r = activeTab==='rooms';
@@ -3506,6 +3528,12 @@ function initScrollCollapse(){
   const miniHdr = document.getElementById('mini-hdr');
   const DURATION = 320;
   let lastY = 0, upAccum = 0;
+  // While a collapse/expand transition is in flight, the panel's geometry
+  // (clientHeight, paddingTop) changes every frame and the browser clamps
+  // scrollTop to the moving bounds — firing scroll events that read exactly
+  // like user swipes. Flipping state off those mid-animation deltas is what
+  // bounced the header straight back open (the rubber-band jolt).
+  let hdrAnimUntil = 0;
 
   function getHdr(){ return document.querySelector('#hdr .tasks-hdr'); }
 
@@ -3518,8 +3546,19 @@ function initScrollCollapse(){
 
   function collapseHdr(){
     if(isHdrCollapsed) return;
-    isHdrCollapsed = true;
     const hdr = getHdr(); if(!hdr) return;
+    // Collapsing grows the panel's viewport by the header's full height (the
+    // header is a flex sibling) and adds the mini-header's height as top
+    // padding. On a short list the collapsed layout's max scroll can't keep
+    // scrollTop past the toggle row — the browser clamps it the moment the
+    // header shrinks, which either re-expands mid-flight (jolt) or strands
+    // the mini-header stacked over the in-panel toggle (double toggle).
+    // Only collapse when the collapsed layout leaves real scroll runway:
+    // 60px collapse threshold + 60px expand accumulator + margin.
+    const maxScrollAfter = panel.scrollHeight + miniHdr.offsetHeight - (panel.clientHeight + hdr.offsetHeight);
+    if(maxScrollAfter < 130) return;
+    isHdrCollapsed = true;
+    hdrAnimUntil = performance.now() + DURATION + 80;
     // Lock current pixel height, then animate height AND padding to 0
     const fullH = hdr.offsetHeight;
     hdr.style.transition = 'none';
@@ -3539,6 +3578,7 @@ function initScrollCollapse(){
     if(!isHdrCollapsed) return;
     isHdrCollapsed = false;
     upAccum = 0;
+    hdrAnimUntil = performance.now() + DURATION + 80;
     const hdr = getHdr(); if(!hdr) return;
     // Measure natural height (with natural padding): set auto, read, then
     // animate from the fully collapsed 0/0 state back up
@@ -3582,6 +3622,9 @@ function initScrollCollapse(){
     // only — these events are not user scrolling and their deltas must
     // never flip the collapse state.
     if(performance.now() < panelScrollGuardUntil) return;
+    // Collapse/expand transition in flight: the geometry-clamp scroll events
+    // it emits must sync position only, never flip the state back (see above).
+    if(performance.now() < hdrAnimUntil) return;
     if(currentTab !== 'tasks') return;
     // Rooms/room-detail use the compact static header — no collapse there.
     if(tasksSubView === 'rooms' || tasksSubView === 'roomDetail') return;
