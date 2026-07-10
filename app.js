@@ -286,7 +286,11 @@ function renderTasks(){
     // Re-apply collapsed state without transition after the header DOM is rebuilt
     if(isHdrCollapsed){
       const hdr = document.querySelector('#hdr .tasks-hdr');
-      if(hdr){ hdr.style.transition='none'; hdr.style.height='0'; hdr.classList.add('collapsing'); }
+      if(hdr){
+        hdr.style.transition='none'; hdr.style.height='0';
+        hdr.style.paddingTop='0px'; hdr.style.paddingBottom='0px'; // border-box floor — see initScrollCollapse
+        hdr.classList.add('collapsing');
+      }
     }
   }
   lucide.createIcons();
@@ -2876,7 +2880,11 @@ function switchTab(tab){
   document.body.classList.toggle('meals', tab==='meals');
   // Reset header state instantly (no animation) when switching tabs
   const prevHdr = document.querySelector('#hdr .tasks-hdr');
-  if(prevHdr){ prevHdr.style.transition='none'; prevHdr.style.height=''; prevHdr.classList.remove('collapsing','scrolled'); }
+  if(prevHdr){
+    prevHdr.style.transition='none'; prevHdr.style.height='';
+    prevHdr.style.paddingTop=''; prevHdr.style.paddingBottom='';
+    prevHdr.classList.remove('collapsing','scrolled');
+  }
   const panel = document.getElementById('panel');
   panel.style.transition = 'none';
   panel.style.paddingTop = '';
@@ -3059,18 +3067,27 @@ function initScrollCollapse(){
 
   function getHdr(){ return document.querySelector('#hdr .tasks-hdr'); }
 
+  // border-box height can never render below the element's own padding, and
+  // .tasks-hdr carries the safe-area inset in its padding-top (~50px on a
+  // notched phone, 0 in a desktop viewport). Animating height alone slammed
+  // into that padding floor partway down and stopped dead — the "header
+  // jumps on a real phone" bug. Padding must animate to 0 alongside height.
+  const HDR_TRANSITION = `height ${DURATION}ms cubic-bezier(.4,0,.2,1), padding ${DURATION}ms cubic-bezier(.4,0,.2,1), box-shadow ${DURATION}ms ease, border-radius ${DURATION}ms ease`;
+
   function collapseHdr(){
     if(isHdrCollapsed) return;
     isHdrCollapsed = true;
     const hdr = getHdr(); if(!hdr) return;
-    // Lock current pixel height, then animate to 0
+    // Lock current pixel height, then animate height AND padding to 0
     const fullH = hdr.offsetHeight;
     hdr.style.transition = 'none';
     hdr.style.height = fullH + 'px';
     hdr.classList.add('collapsing');
     hdr.offsetHeight; // force reflow so transition applies on next frame
-    hdr.style.transition = `height ${DURATION}ms cubic-bezier(.4,0,.2,1), box-shadow ${DURATION}ms ease, border-radius ${DURATION}ms ease`;
+    hdr.style.transition = HDR_TRANSITION;
     hdr.style.height = '0';
+    hdr.style.paddingTop = '0px';
+    hdr.style.paddingBottom = '0px';
     miniHdr.classList.add('visible');
     // Pad the panel top so list content stays visible below the mini-header
     panel.style.paddingTop = miniHdr.offsetHeight + 'px';
@@ -3081,27 +3098,42 @@ function initScrollCollapse(){
     isHdrCollapsed = false;
     upAccum = 0;
     const hdr = getHdr(); if(!hdr) return;
-    // Measure natural height: briefly set to auto, read, then animate from 0
+    // Measure natural height (with natural padding): set auto, read, then
+    // animate from the fully collapsed 0/0 state back up
     hdr.style.transition = 'none';
     hdr.style.height = 'auto';
+    hdr.style.paddingTop = '';
+    hdr.style.paddingBottom = '';
     const fullH = hdr.offsetHeight;
+    const cs = getComputedStyle(hdr);
+    const padT = cs.paddingTop, padB = cs.paddingBottom;
     hdr.style.height = '0';
+    hdr.style.paddingTop = '0px';
+    hdr.style.paddingBottom = '0px';
     hdr.offsetHeight; // reflow
     hdr.classList.remove('collapsing');
-    hdr.style.transition = `height ${DURATION}ms cubic-bezier(.4,0,.2,1), box-shadow ${DURATION}ms ease, border-radius ${DURATION}ms ease`;
+    hdr.style.transition = HDR_TRANSITION;
     hdr.style.height = fullH + 'px';
+    hdr.style.paddingTop = padT;
+    hdr.style.paddingBottom = padB;
     miniHdr.classList.remove('visible');
     panel.style.paddingTop = '0';
-    // After animation, remove inline height so the header can reflow naturally
+    // After animation, remove inline styles so the header can reflow naturally
     setTimeout(() => {
-      if(!isHdrCollapsed){ hdr.style.height = ''; hdr.style.transition = ''; }
+      if(!isHdrCollapsed){
+        hdr.style.height = ''; hdr.style.transition = '';
+        hdr.style.paddingTop = ''; hdr.style.paddingBottom = '';
+      }
     }, DURATION + 20);
   }
 
   panel.addEventListener('scroll', function(){
     // Always track position first — early-returning before updating lastY
     // leaves a stale value that swallows the first delta back on this tab.
-    const y = this.scrollTop;
+    // Clamp iOS rubber-band overscroll: the bounce reports out-of-range
+    // scrollTops whose snap-back reads as a large fake swipe and flips the
+    // collapse state mid-bounce on fast repeated scrolling.
+    const y = Math.min(Math.max(this.scrollTop, 0), Math.max(this.scrollHeight - this.clientHeight, 0));
     const delta = y - lastY;
     lastY = y;
     if(currentTab !== 'tasks') return;
