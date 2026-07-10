@@ -8,8 +8,16 @@
  *   FSQ_SERVICE_KEY — Foursquare Service API Key from Developer Console
  *
  * Routes (all GET):
- *   /search?q=<text>&lat=&lon=      — text search with location bias
- *   /discover?lat=&lon=[&limit=]    — no-query discovery, sorted by rating
+ *   /search?q=<text>&lat=&lon=      — text search with location bias; a
+ *                                     parallel rating-sorted probe of the
+ *                                     same query marks its top hits
+ *                                     highlyRated:true (a free qualitative
+ *                                     signal — the numeric rating field is
+ *                                     Pro-gated but server-side rating
+ *                                     ORDER is not)
+ *   /discover?lat=&lon=[&limit=][&sort=RATING|POPULARITY]
+ *                                   — no-query discovery; both sorts are
+ *                                     free server-side orderings
  *   /geocode?q=<suburb or postcode> — resolve to coords via Foursquare's
  *                                     own `near` geocoder (no third party)
  *   OPTIONS *                       — CORS preflight
@@ -142,16 +150,26 @@ export default {
       const lon = parseFloat(url.searchParams.get('lon'));
       if (q.length < 2)                  return jsonError(400, 'q must be at least 2 characters');
       if (!isFinite(lat) || !isFinite(lon)) return jsonError(400, 'lat and lon are required numbers');
-      let r;
+      const base = { query: q, ll: `${lat},${lon}`, radius: 8000, fsq_category_ids: CAT_DATE_SPOTS };
+      let r, rated;
       try {
-        r = await fsqSearchWithRating(env, {
-          query: q, ll: `${lat},${lon}`, radius: 8000,
-          fsq_category_ids: CAT_DATE_SPOTS, limit: 10, sort: 'RELEVANCE',
-        });
+        // Second, id-only probe of the same query sorted by rating: results
+        // that also land in its top slice earn highlyRated (order is a real
+        // rating signal even when the rating field itself is Pro-gated).
+        [r, rated] = await Promise.all([
+          fsqSearchWithRating(env, { ...base, limit: 10, sort: 'RELEVANCE' }),
+          fsqFetch(env, { ...base, limit: 5, sort: 'RATING', fields: 'fsq_place_id' }).catch(() => null),
+        ]);
       } catch (e) { return jsonError(502, `Upstream fetch failed: ${e.message}`); }
       if (!r.ok) return relayError(r);
       const data = JSON.parse(r.text);
-      return json(200, { results: data.results || [], ratingUnavailable: r.ratingUnavailable });
+      let topIds = new Set();
+      if (rated && rated.ok) {
+        try { topIds = new Set((JSON.parse(rated.text).results || []).map(p => p.fsq_place_id)); } catch (e) {}
+      }
+      const results = (data.results || []).map(p =>
+        topIds.has(p.fsq_place_id) ? { ...p, highlyRated: true } : p);
+      return json(200, { results, ratingUnavailable: r.ratingUnavailable });
     }
 
     // ── /discover: no query, best-rated date spots near the bias ───────
@@ -159,12 +177,15 @@ export default {
       const lat = parseFloat(url.searchParams.get('lat'));
       const lon = parseFloat(url.searchParams.get('lon'));
       const limit = Math.min(parseInt(url.searchParams.get('limit')) || 30, 50);
+      // Both orderings are free server-side; the app offers them as
+      // "Best rated" vs "Trending now".
+      const sort = (url.searchParams.get('sort') || '').toUpperCase() === 'POPULARITY' ? 'POPULARITY' : 'RATING';
       if (!isFinite(lat) || !isFinite(lon)) return jsonError(400, 'lat and lon are required numbers');
       let r;
       try {
         r = await fsqSearchWithRating(env, {
           ll: `${lat},${lon}`, radius: 6000,
-          fsq_category_ids: CAT_DATE_SPOTS, limit, sort: 'RATING',
+          fsq_category_ids: CAT_DATE_SPOTS, limit, sort,
         });
       } catch (e) { return jsonError(502, `Upstream fetch failed: ${e.message}`); }
       if (!r.ok) return relayError(r);
