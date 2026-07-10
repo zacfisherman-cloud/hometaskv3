@@ -14,12 +14,25 @@
  *                                     own `near` geocoder (no third party)
  *   OPTIONS *                       — CORS preflight
  *
- * Category scope: the two top-level taxonomy groups so coverage matches
- * what Foursquare actually supports (descendants are included
- * automatically) — verified live against the 2025-06-17 API:
+ * Category scope: Dining and Drinking in full, plus hand-picked
+ * date-worthy Arts subcategories (descendants included automatically) —
+ * the full Arts and Entertainment top level also matches stadiums, war
+ * memorials and monuments, which are not date suggestions. All IDs
+ * verified live against the 2025-06-17 API:
  *   4d4b7105d754a06374d81259  Dining and Drinking (restaurants, bars, cafés)
- *   4d4b7104d754a06370d81259  Arts and Entertainment (museums, galleries,
- *                             theatres, historic sites, aquariums, …)
+ *   4bf58dd8d48988d1e2931735  Art Gallery
+ *   4bf58dd8d48988d181941735  Museum (art/history/science…)
+ *   4bf58dd8d48988d1f2931735  Performing Arts Venue (theatres, concert halls, opera)
+ *   4bf58dd8d48988d1e5931735  Music Venue (live music)
+ *   4bf58dd8d48988d18e941735  Comedy Club
+ *   4bf58dd8d48988d17f941735  Movie Theater
+ *   4fceea171983d5d06c3e9823  Aquarium
+ *   4bf58dd8d48988d17b941735  Zoo
+ * Discover additionally drops any result carrying a memorial / monument /
+ * cemetery / stadium category, because solemn or sports venues can still
+ * ride in through a second category (the Shrine of Remembrance matches
+ * "History Museum" while also being a Memorial Site). Manual /search is
+ * not deny-filtered — a typed query is explicit intent.
  *
  * Rating economics: `rating` is a Pro-tier field. Each request tries to
  * include it; if the org is out of Pro credits (FSQ replies 429/402 with a
@@ -31,7 +44,18 @@
 const FSQ_SEARCH = 'https://places-api.foursquare.com/places/search';
 const FSQ_VERSION = '2025-06-17';
 
-const CAT_DATE_SPOTS = '4d4b7105d754a06374d81259,4d4b7104d754a06370d81259';
+const CAT_DATE_SPOTS = [
+  '4d4b7105d754a06374d81259', // Dining and Drinking (whole group)
+  '4bf58dd8d48988d1e2931735', // Art Gallery
+  '4bf58dd8d48988d181941735', // Museum
+  '4bf58dd8d48988d1f2931735', // Performing Arts Venue
+  '4bf58dd8d48988d1e5931735', // Music Venue
+  '4bf58dd8d48988d18e941735', // Comedy Club
+  '4bf58dd8d48988d17f941735', // Movie Theater
+  '4fceea171983d5d06c3e9823', // Aquarium
+  '4bf58dd8d48988d17b941735', // Zoo
+].join(',');
+const NOT_A_DATE_SPOT = /memorial|monument|cemeter|stadium|sports/i;
 const FIELDS_CORE = 'fsq_place_id,name,categories,location';
 const FIELDS_PRO  = FIELDS_CORE + ',rating';
 
@@ -145,7 +169,9 @@ export default {
       } catch (e) { return jsonError(502, `Upstream fetch failed: ${e.message}`); }
       if (!r.ok) return relayError(r);
       const data = JSON.parse(r.text);
-      return json(200, { results: data.results || [], ratingUnavailable: r.ratingUnavailable });
+      const results = (data.results || []).filter(p =>
+        !(p.categories || []).some(c => NOT_A_DATE_SPOT.test(c?.name || '')));
+      return json(200, { results, ratingUnavailable: r.ratingUnavailable });
     }
 
     // ── /geocode: suburb/postcode → coords via Foursquare's own `near` ──

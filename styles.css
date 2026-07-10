@@ -706,31 +706,39 @@ button,a,[class$="-tile"],[class$="-row"]{touch-action:manipulation}
 }
 .dv-title{font-weight:250;font-size:24px;color:var(--ink);margin-top:6px}
 .dv-sub{font-size:13px;font-weight:500;color:var(--muted);margin-top:2px}
-#dv-stage{position:relative;flex:1;width:100%;max-width:360px;margin-top:18px;min-height:0}
+/* auto top/bottom margins centre the card + buttons between title and edge */
+#dv-stage{position:relative;width:100%;max-width:360px;height:300px;margin-top:auto}
 .dv-msg{
   position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
   text-align:center;color:var(--muted);font-weight:550;font-size:14.5px;line-height:1.6;padding:0 18px;
 }
 .dv-card{
-  position:absolute;inset:0;display:flex;flex-direction:column;
-  background:var(--card);border:1px solid var(--line);border-radius:22px;
-  box-shadow:var(--sh-md);overflow:hidden;
+  position:absolute;inset:0;display:flex;flex-direction:column;gap:12px;
+  background:var(--card);border:1px solid var(--line);border-radius:24px;
+  box-shadow:var(--sh-md);overflow:hidden;padding:26px 24px 22px;
   touch-action:none;user-select:none;-webkit-user-select:none;
 }
+/* quiet corner wash so the card reads designed, not blank — token-based,
+   so it follows light/dark and the tab palette */
+.dv-card::before{
+  content:'';position:absolute;top:-70px;right:-70px;width:190px;height:190px;
+  border-radius:50%;background:var(--sky-soft);pointer-events:none;
+}
 .dv-card:not(.top){transform:scale(.94) translateY(14px);opacity:.6}
-.dv-hero{
-  position:relative;flex:0 0 44%;display:flex;align-items:center;justify-content:center;
+.dv-badge{
+  width:54px;height:54px;flex:0 0 54px;border-radius:18px;
+  background:var(--sky-soft);color:var(--sky-deep);
+  display:flex;align-items:center;justify-content:center;
 }
-.dv-hero svg{width:56px;height:56px;color:rgba(255,255,255,.9)}
+.dv-badge svg{width:26px;height:26px}
 .dv-stamp{
-  position:absolute;top:16px;font-weight:800;font-size:15px;letter-spacing:.14em;
-  text-transform:uppercase;padding:5px 12px;border-radius:8px;border:2.5px solid #fff;
-  color:#fff;opacity:0;transform:rotate(-8deg);
+  position:absolute;top:18px;font-weight:800;font-size:14px;letter-spacing:.14em;
+  text-transform:uppercase;padding:5px 12px;border-radius:8px;
+  opacity:0;transform:rotate(-8deg);z-index:2;
 }
-.dv-stamp-add{left:14px;background:rgba(40,160,90,.85)}
-.dv-stamp-skip{right:14px;background:rgba(200,50,60,.85);transform:rotate(8deg)}
-.dv-body{flex:1;padding:18px 20px;display:flex;flex-direction:column;gap:9px;min-height:0}
-.dv-name{font-weight:650;font-size:20px;color:var(--ink);letter-spacing:-.01em;line-height:1.25}
+.dv-stamp-add{right:16px;background:rgba(40,160,90,.14);border:2px solid #28A05A;color:#28A05A}
+.dv-stamp-skip{right:16px;background:var(--red-soft);border:2px solid var(--red);color:var(--red);transform:rotate(8deg)}
+.dv-name{font-weight:350;font-size:25px;color:var(--ink);letter-spacing:-.02em;line-height:1.2}
 .dv-meta{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .dv-cat{
   font-size:12px;font-weight:600;color:var(--sky-deep);background:var(--sky-soft);
@@ -740,9 +748,12 @@ button,a,[class$="-tile"],[class$="-row"]{touch-action:manipulation}
   font-size:12px;font-weight:650;color:var(--gold);background:var(--gold-soft);
   border-radius:var(--r-pill);padding:4px 11px;
 }
-.dv-addr{display:flex;align-items:flex-start;gap:6px;font-size:13px;color:var(--muted);line-height:1.45}
-.dv-addr svg{width:14px;height:14px;flex:0 0 14px;margin-top:1.5px}
-.dv-btns{display:flex;gap:26px;margin-top:18px}
+.dv-addr{
+  display:flex;align-items:flex-start;gap:6px;font-size:13.5px;color:var(--muted);
+  line-height:1.5;margin-top:auto;
+}
+.dv-addr svg{width:14px;height:14px;flex:0 0 14px;margin-top:2px}
+.dv-btns{display:flex;gap:26px;margin:20px 0 auto}
 .dv-act{
   width:62px;height:62px;border-radius:50%;display:flex;align-items:center;justify-content:center;
   background:var(--card);border:1px solid var(--line-strong);box-shadow:var(--sh-sm);

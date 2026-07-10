@@ -1331,7 +1331,7 @@ function toVisitCard(p){
   return `<div class="date-card${p.picked?' picked-highlight':''}">
     ${p.picked ? '<div class="picked-tag"><i data-lucide="star"></i>Next Date!</div>' : ''}
     <div class="date-top">
-      <div class="date-icon pending-icon"><i data-lucide="utensils"></i></div>
+      <div class="date-icon pending-icon"><i data-lucide="${p.category ? dateSpotIcon(p.category) : 'utensils'}"></i></div>
       <div class="date-info">
         <div class="date-name">${escapeHtml(p.name)}</div>
         ${p.address ? `<div class="date-addr-link" data-maps="${mapsQ}"><i data-lucide="map-pin"></i>${escapeHtml(p.address)}</div>` : ''}
@@ -1350,7 +1350,7 @@ function visitedCard(p){
   ).join('');
   return `<div class="date-card">
     <div class="date-top">
-      <div class="date-icon visited-icon"><i data-lucide="check-circle-2"></i></div>
+      <div class="date-icon visited-icon"><i data-lucide="${p.category ? dateSpotIcon(p.category) : 'check-circle-2'}"></i></div>
       <div class="date-info">
         <div class="date-name">${escapeHtml(p.name)}</div>
         ${p.address ? `<div class="date-addr-link" data-maps="${mapsQ}"><i data-lucide="map-pin"></i>${escapeHtml(p.address)}</div>` : ''}
@@ -1402,7 +1402,7 @@ async function fsqSearch(q){
           const newId = uid(), addedAt = Date.now();
           commitChange(state => {
             if(state.dates.toVisit.find(x=>x.name===p.name)) return; // re-check against fresh state too
-            state.dates.toVisit.push({id:newId, name:p.name, address:p.address, rating:p.rating, addedAt, picked:false});
+            state.dates.toVisit.push({id:newId, name:p.name, address:p.address, rating:p.rating, category:p.category, addedAt, picked:false});
           });
         }
         panel.style.display='none';
@@ -1463,26 +1463,19 @@ async function openDiscoverDeck(){
 
   const stage = document.getElementById('dv-stage');
   let idx = 0;
-  const GRADS = [
-    ['#8B6CF0','#B69CFF'], ['#3D9C82','#58B98E'], ['#B7562B','#E0904E'],
-    ['#2B6CB7','#4E9CE0'], ['#B72B70','#E04EA4'],
-  ];
+  // Text-forward card: no photo, and no photo-shaped hole either — a small
+  // icon badge in a type-led layout reads as designed, not as a failed image.
   function cardHTML(p, top){
-    const g = GRADS[[...p.name].reduce((a,c)=>a+c.charCodeAt(0), 0) % GRADS.length];
     return `<div class="dv-card${top ? ' top' : ''}">
-      <div class="dv-hero" style="background:linear-gradient(130deg,${g[0]},${g[1]})">
-        <i data-lucide="${dateSpotIcon(p.category)}"></i>
-        <span class="dv-stamp dv-stamp-add">Add</span>
-        <span class="dv-stamp dv-stamp-skip">Skip</span>
+      <span class="dv-stamp dv-stamp-add">Add</span>
+      <span class="dv-stamp dv-stamp-skip">Skip</span>
+      <div class="dv-badge"><i data-lucide="${dateSpotIcon(p.category)}"></i></div>
+      <div class="dv-name">${escapeHtml(p.name)}</div>
+      <div class="dv-meta">
+        ${p.category ? `<span class="dv-cat">${escapeHtml(p.category)}</span>` : ''}
+        ${p.rating != null ? `<span class="dv-rating">★ ${p.rating}</span>` : ''}
       </div>
-      <div class="dv-body">
-        <div class="dv-name">${escapeHtml(p.name)}</div>
-        <div class="dv-meta">
-          ${p.category ? `<span class="dv-cat">${escapeHtml(p.category)}</span>` : ''}
-          ${p.rating != null ? `<span class="dv-rating">★ ${p.rating}</span>` : ''}
-        </div>
-        ${p.address ? `<div class="dv-addr"><i data-lucide="map-pin"></i>${escapeHtml(p.address)}</div>` : ''}
-      </div>
+      ${p.address ? `<div class="dv-addr"><i data-lucide="map-pin"></i>${escapeHtml(p.address)}</div>` : ''}
     </div>`;
   }
   function addPlace(p){
@@ -1490,7 +1483,7 @@ async function openDiscoverDeck(){
     const newId = uid(), addedAt = Date.now();
     commitChange(state => {
       if(state.dates.toVisit.find(x => normKey(x.name || '') === normKey(p.name))) return;
-      state.dates.toVisit.push({id:newId, name:p.name, address:p.address, rating:p.rating, addedAt, picked:false});
+      state.dates.toVisit.push({id:newId, name:p.name, address:p.address, rating:p.rating, category:p.category, addedAt, picked:false});
     });
   }
   function showCard(){
@@ -1906,6 +1899,7 @@ function openRateSheet(placeId){
         state.dates.toVisit = state.dates.toVisit.filter(p=>p.id!==placeId);
         state.dates.visited.unshift({
           id:newId, name:p?p.name:place.name, address:p?p.address:place.address,
+          category:(p ? p.category : place.category) || '',
           rating, notes, visitedAt
         });
       });
