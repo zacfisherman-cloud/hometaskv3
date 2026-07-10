@@ -1176,7 +1176,11 @@ function renderCalendar(){
 /* ════════════════════════════════════════ DATES TAB */
 // Deployed dates-fsq-proxy Worker (Foursquare Places API; see dates-fsq-proxy/)
 const DATES_PROXY_URL = 'https://dates-fsq-proxy.zacfisherman.workers.dev';
-let searchBias = {lat:-37.8136, lon:144.9631, label:'Melbourne'};
+const DEFAULT_BIAS = {lat:-37.8136, lon:144.9631, label:'Melbourne'};
+// "Near" bias lives in synced state like everything else, so a suburb set
+// on one phone survives app restarts (and shows up on the other phone).
+function getBias(){ return (S.dates && S.dates.searchBias) || DEFAULT_BIAS; }
+function setBias(b){ commitChange(state => { state.dates.searchBias = b; }); }
 
 // Suburb/postcode → coords through Foursquare's own `near` geocoder
 // (the Worker reads the resolved centre out of the search response), so
@@ -1197,11 +1201,30 @@ async function fsqLocate(q){
 // the Worker degrades to core fields instead of failing the search).
 function normFsqPlace(p){
   return {
+    fsqId: p.fsq_place_id || null,
     name: p.name || '',
     address: (p.location?.formatted_address || '').replace(/,?\s*Australia$/i, ''),
     rating: typeof p.rating === 'number' ? +p.rating.toFixed(1) : null,
     category: p.categories?.[0]?.name || '',
+    highlyRated: !!p.highlyRated,
   };
+}
+// Duplicate check for a Foursquare place against a saved list: stable place
+// ids when both sides have one (so two branches of the same chain are NOT
+// duplicates), name matching as the fallback for entries saved before ids
+// were stored.
+function dateSpotKnown(p, list){
+  return list.some(x => (x.fsqId && p.fsqId)
+    ? x.fsqId === p.fsqId
+    : normKey(x.name || '') === normKey(p.name || ''));
+}
+// Qualitative quality signal (see dates-fsq-proxy: derived from Foursquare's
+// free server-side rating/popularity ORDER, never a faked number).
+const BADGE_LABELS = {'top-rated':'Top rated nearby', 'trending':'Trending now', 'highly-rated':'Highly rated'};
+function qualityChipHTML(p, cls){
+  if(p.rating != null) return `<span class="${cls}">★ ${p.rating}</span>`;
+  if(p.badge && BADGE_LABELS[p.badge]) return `<span class="${cls}">★ ${BADGE_LABELS[p.badge]}</span>`;
+  return '';
 }
 function dateSpotIcon(cat){
   const c = (cat || '').toLowerCase();
@@ -1243,7 +1266,7 @@ function renderDates(){
     <div class="search-loc-bar">
       <i data-lucide="map-pin"></i>
       <span class="search-loc-lbl">Near</span>
-      <input class="search-loc-input" id="loc-input" placeholder="Suburb or postcode" value="${searchBias.label}" autocomplete="off">
+      <input class="search-loc-input" id="loc-input" placeholder="Suburb or postcode" value="${escapeHtml(getBias().label)}" autocomplete="off">
     </div>
     <div id="search-results-panel" class="search-results-panel"></div>`;
 
@@ -1292,10 +1315,10 @@ function renderDates(){
   document.getElementById('loc-input').addEventListener('input', e => {
     clearTimeout(locTimer);
     const q = e.target.value.trim();
-    if(!q){ searchBias = {lat:-37.8136, lon:144.9631, label:'Melbourne'}; return; }
+    if(!q){ setBias(DEFAULT_BIAS); return; }
     locTimer = setTimeout(async () => {
       const coords = await fsqLocate(q);
-      if(coords) searchBias = {...coords, label:q};
+      if(coords) setBias({...coords, label:q});
       const sq = document.getElementById('date-search')?.value.trim();
       if(sq && sq.length >= 2) fsqSearch(sq);
     }, 600);
@@ -1335,6 +1358,7 @@ function toVisitCard(p){
       <div class="date-info">
         <div class="date-name">${escapeHtml(p.name)}</div>
         ${p.address ? `<div class="date-addr-link" data-maps="${mapsQ}"><i data-lucide="map-pin"></i>${escapeHtml(p.address)}</div>` : ''}
+        ${qualityChipHTML(p, 'date-quality')}
       </div>
     </div>
     <div class="date-actions">
@@ -1375,7 +1399,7 @@ async function fsqSearch(q){
   const timeoutId = setTimeout(() => controller.abort(), 10000);
   try{
     // Bias toward user's chosen suburb/postcode; default is Melbourne CBD
-    const {lat, lon} = searchBias;
+    const {lat, lon} = getBias();
     const res = await fetch(`${DATES_PROXY_URL}/search?q=${encodeURIComponent(q)}&lat=${lat}&lon=${lon}`, {signal:controller.signal});
     const data = await res.json();
     clearTimeout(timeoutId);
@@ -1392,17 +1416,18 @@ async function fsqSearch(q){
           <div class="sr-name">${escapeHtml(p.name)}</div>
           ${p.address || p.category ? `<div class="sr-addr">${escapeHtml([p.category, p.address].filter(Boolean).join(' · '))}</div>` : ''}
         </div>
-        ${p.rating != null ? `<span class="sr-rating">★ ${p.rating}</span>` : ''}
+        ${p.highlyRated && p.rating == null ? `<span class="sr-rating">★ Highly rated</span>` : p.rating != null ? `<span class="sr-rating">★ ${p.rating}</span>` : ''}
       </div>`).join('');
     lucide.createIcons();
     panel.querySelectorAll('.search-result-row').forEach((el,i) => {
       el.addEventListener('click', () => {
         const p = places[i];
-        if(!S.dates.toVisit.find(x=>x.name===p.name)){
+        if(!dateSpotKnown(p, S.dates.toVisit)){
           const newId = uid(), addedAt = Date.now();
+          const badge = p.rating == null && p.highlyRated ? 'highly-rated' : null;
           commitChange(state => {
-            if(state.dates.toVisit.find(x=>x.name===p.name)) return; // re-check against fresh state too
-            state.dates.toVisit.push({id:newId, name:p.name, address:p.address, rating:p.rating, category:p.category, addedAt, picked:false});
+            if(dateSpotKnown(p, state.dates.toVisit)) return; // re-check against fresh state too
+            state.dates.toVisit.push({id:newId, fsqId:p.fsqId, name:p.name, address:p.address, rating:p.rating, badge, category:p.category, addedAt, picked:false});
           });
         }
         panel.style.display='none';
@@ -1425,7 +1450,7 @@ async function fsqSearch(q){
   }
 }
 
-/* ── Discover: swipe deck of well-rated date spots near the bias ── */
+/* ── Discover: swipe deck / compact list of date spots near the bias ── */
 async function openDiscoverDeck(){
   document.getElementById('discover-overlay')?.remove();
   const ov = document.createElement('div');
@@ -1433,7 +1458,17 @@ async function openDiscoverDeck(){
   ov.innerHTML = `
     <button id="dv-close">&#x2715;</button>
     <div class="dv-title">Discover</div>
-    <div class="dv-sub">Date spots near ${escapeHtml(searchBias.label)}</div>
+    <div class="dv-sub">Date spots near ${escapeHtml(getBias().label)}</div>
+    <div class="dv-controls">
+      <div class="dv-sort">
+        <button class="dv-chip sel" data-dv-sort="RATING">Best rated</button>
+        <button class="dv-chip" data-dv-sort="POPULARITY">Trending now</button>
+      </div>
+      <div class="dv-view">
+        <button class="dv-vbtn sel" data-dv-view="swipe" aria-label="One at a time"><i data-lucide="layers"></i></button>
+        <button class="dv-vbtn" data-dv-view="list" aria-label="Compact list"><i data-lucide="list"></i></button>
+      </div>
+    </div>
     <div id="dv-stage"><div class="dv-msg">Finding spots…</div></div>
     <div class="dv-btns" id="dv-btns" style="display:none">
       <button class="dv-act dv-skip" id="dv-skip" aria-label="Skip"><i data-lucide="x"></i></button>
@@ -1444,25 +1479,33 @@ async function openDiscoverDeck(){
   const close = ()=>{ ov.remove(); renderDates(); };
   document.getElementById('dv-close').onclick = close;
 
-  let deck = [];
-  try{
-    const {lat, lon} = searchBias;
-    const res = await fetch(`${DATES_PROXY_URL}/discover?lat=${lat}&lon=${lon}&limit=40`);
+  const stage = document.getElementById('dv-stage');
+  let sortMode = 'RATING';   // 'RATING' (Best rated) | 'POPULARITY' (Trending now)
+  let view = 'swipe';        // 'swipe' | 'list'
+  const decks = {};          // per-sort cache: sortMode → {cards, idx}
+
+  async function loadDeck(){
+    if(decks[sortMode]) return;
+    stage.innerHTML = '<div class="dv-msg">Finding spots…</div>';
+    document.getElementById('dv-btns').style.display = 'none';
+    const {lat, lon} = getBias();
+    const res = await fetch(`${DATES_PROXY_URL}/discover?lat=${lat}&lon=${lon}&limit=40&sort=${sortMode}`);
     const data = await res.json();
     if(!res.ok) throw new Error(data.error || `Discover failed (${res.status})`);
     // skip anything already on either list, and dedupe within the deck
-    const known = new Set([...S.dates.toVisit, ...S.dates.visited].map(p => normKey(p.name || '')));
-    deck = (data.results || []).map(normFsqPlace)
-      .filter(p => p.name && !known.has(normKey(p.name)))
-      .filter((p, i, arr) => arr.findIndex(x => normKey(x.name) === normKey(p.name)) === i);
-  }catch(e){
-    const st = document.getElementById('dv-stage');
-    if(st) st.innerHTML = `<div class="dv-msg">${escapeHtml(e.message || "Couldn't load suggestions")}</div>`;
-    return;
+    const knownList = [...S.dates.toVisit, ...S.dates.visited];
+    const cards = (data.results || []).map(normFsqPlace)
+      .filter(p => p.name && !dateSpotKnown(p, knownList))
+      .filter((p, i, arr) => arr.findIndex(x =>
+        (x.fsqId && p.fsqId) ? x.fsqId === p.fsqId : normKey(x.name) === normKey(p.name)) === i);
+    // The response order IS Foursquare's real rating/popularity ranking
+    // (free even though the numeric rating field is Pro-gated), so the top
+    // slice earns an honest qualitative badge — never an invented number.
+    const badge = sortMode === 'POPULARITY' ? 'trending' : 'top-rated';
+    cards.slice(0, Math.max(3, Math.ceil(cards.length * 0.2))).forEach(p => { p.badge = badge; });
+    decks[sortMode] = {cards, idx: 0};
   }
 
-  const stage = document.getElementById('dv-stage');
-  let idx = 0;
   // Text-forward card: no photo, and no photo-shaped hole either — a small
   // icon badge in a type-led layout reads as designed, not as a failed image.
   function cardHTML(p, top){
@@ -1473,31 +1516,66 @@ async function openDiscoverDeck(){
       <div class="dv-name">${escapeHtml(p.name)}</div>
       <div class="dv-meta">
         ${p.category ? `<span class="dv-cat">${escapeHtml(p.category)}</span>` : ''}
-        ${p.rating != null ? `<span class="dv-rating">★ ${p.rating}</span>` : ''}
+        ${qualityChipHTML(p, 'dv-rating')}
       </div>
       ${p.address ? `<div class="dv-addr"><i data-lucide="map-pin"></i>${escapeHtml(p.address)}</div>` : ''}
     </div>`;
   }
+  function rowHTML(p, i){
+    const added = dateSpotKnown(p, S.dates.toVisit);
+    return `<div class="dv-row">
+      <div class="dv-row-ic"><i data-lucide="${dateSpotIcon(p.category)}"></i></div>
+      <div class="dv-row-info">
+        <div class="dv-row-name">${escapeHtml(p.name)} ${qualityChipHTML(p, 'dv-row-chip')}</div>
+        <div class="dv-row-sub">${escapeHtml([p.category, p.address].filter(Boolean).join(' · '))}</div>
+      </div>
+      <button class="dv-row-add${added ? ' on' : ''}" data-dv-row="${i}" aria-label="${added ? 'Added' : 'Add to list'}">
+        <i data-lucide="${added ? 'check' : 'plus'}"></i>
+      </button>
+    </div>`;
+  }
   function addPlace(p){
-    if(S.dates.toVisit.find(x => normKey(x.name) === normKey(p.name))) return;
+    if(dateSpotKnown(p, S.dates.toVisit)) return;
     const newId = uid(), addedAt = Date.now();
     commitChange(state => {
-      if(state.dates.toVisit.find(x => normKey(x.name || '') === normKey(p.name))) return;
-      state.dates.toVisit.push({id:newId, name:p.name, address:p.address, rating:p.rating, category:p.category, addedAt, picked:false});
+      if(dateSpotKnown(p, state.dates.toVisit)) return;
+      state.dates.toVisit.push({id:newId, fsqId:p.fsqId, name:p.name, address:p.address, rating:p.rating, badge:p.badge || null, category:p.category, addedAt, picked:false});
     });
   }
-  function showCard(){
-    document.getElementById('dv-btns').style.display = idx < deck.length ? 'flex' : 'none';
-    if(idx >= deck.length){
-      stage.innerHTML = `<div class="dv-msg">That's the lot nearby!<br>Change the "Near" suburb to explore somewhere else.</div>`;
+
+  function render(){
+    const d = decks[sortMode];
+    if(!d) return; // still loading — loadDeck's caller renders when ready
+    stage.classList.toggle('listing', view === 'list');
+    if(!d.cards.length){
+      document.getElementById('dv-btns').style.display = 'none';
+      stage.innerHTML = `<div class="dv-msg">Nothing new nearby — everything here is already on your lists!</div>`;
       return;
     }
-    stage.innerHTML = (idx + 1 < deck.length ? cardHTML(deck[idx+1], false) : '') + cardHTML(deck[idx], true);
+    if(view === 'list'){
+      document.getElementById('dv-btns').style.display = 'none';
+      stage.innerHTML = d.cards.map(rowHTML).join('');
+      lucide.createIcons();
+      stage.querySelectorAll('[data-dv-row]').forEach(btn => btn.addEventListener('click', ()=>{
+        addPlace(d.cards[+btn.dataset.dvRow]);
+        btn.classList.add('on');
+        btn.innerHTML = '<i data-lucide="check"></i>';
+        btn.setAttribute('aria-label', 'Added');
+        lucide.createIcons();
+      }));
+      return;
+    }
+    document.getElementById('dv-btns').style.display = d.idx < d.cards.length ? 'flex' : 'none';
+    if(d.idx >= d.cards.length){
+      stage.innerHTML = `<div class="dv-msg">That's the lot nearby!<br>Try the other sort, or change the "Near" suburb.</div>`;
+      return;
+    }
+    stage.innerHTML = (d.idx + 1 < d.cards.length ? cardHTML(d.cards[d.idx+1], false) : '') + cardHTML(d.cards[d.idx], true);
     lucide.createIcons();
     bindSwipe(stage.querySelector('.dv-card.top'), liked => {
-      if(liked) addPlace(deck[idx]);
-      idx++;
-      showCard();
+      if(liked) addPlace(d.cards[d.idx]);
+      d.idx++;
+      render();
     });
   }
   // Swipe right = add, left = skip; buttons fling the card the same way.
@@ -1541,11 +1619,27 @@ async function openDiscoverDeck(){
     document.getElementById('dv-add').onclick = ()=> fling(true);
     document.getElementById('dv-skip').onclick = ()=> fling(false);
   }
-  if(!deck.length){
-    stage.innerHTML = `<div class="dv-msg">Nothing new nearby — everything well-rated is already on your lists!</div>`;
-    return;
+
+  async function loadAndRender(){
+    try{ await loadDeck(); render(); }
+    catch(e){
+      document.getElementById('dv-btns').style.display = 'none';
+      stage.innerHTML = `<div class="dv-msg">${escapeHtml(e.message || "Couldn't load suggestions")}</div>`;
+    }
   }
-  showCard();
+  ov.querySelectorAll('[data-dv-sort]').forEach(el => el.addEventListener('click', ()=>{
+    if(el.dataset.dvSort === sortMode) return;
+    sortMode = el.dataset.dvSort;
+    ov.querySelectorAll('[data-dv-sort]').forEach(e => e.classList.toggle('sel', e === el));
+    loadAndRender();
+  }));
+  ov.querySelectorAll('[data-dv-view]').forEach(el => el.addEventListener('click', ()=>{
+    if(el.dataset.dvView === view) return;
+    view = el.dataset.dvView;
+    ov.querySelectorAll('[data-dv-view]').forEach(e => e.classList.toggle('sel', e === el));
+    render();
+  }));
+  loadAndRender();
 }
 
 /* ── Spinning wheel overlay ──────────────────── */
