@@ -1204,8 +1204,12 @@ function renderDates(){
   const visited = S.dates.visited;
 
   let html = `
-    <button class="pick-hero" id="pick-btn"><i data-lucide="dice-5"></i>Gamble Your Date</button>
-    <button class="luck-link" id="test-luck-btn"><i data-lucide="dices"></i>Test your luck<span> — practice spin, nothing counts</span></button>
+    <div class="pick-row">
+      <button class="pick-hero" id="pick-btn"><i data-lucide="dice-5"></i>Gamble Your Date</button>
+      <button class="pick-practice" id="test-luck-btn" aria-label="Test your luck — practice spin, nothing counts">
+        <i data-lucide="eye"></i><span>Practice</span>
+      </button>
+    </div>
     <div class="search-wrap-row">
       <div class="search-box">
         <i data-lucide="search"></i>

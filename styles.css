@@ -423,17 +423,29 @@ button,a,[class$="-tile"],[class$="-row"]{touch-action:manipulation}
 .top-badge{background:var(--sky-soft);color:var(--sky-deep);border-radius:var(--r-pill);padding:3px 10px;font-size:11px;font-weight:600}
 
 /* ── dates tab ───────────────────────────────────────────────── */
+/* Spin buttons: one row, hero ~80% / practice ~20% of the width the old
+   full-width hero occupied. Casino red = the real, tracked spin; the
+   practice button is a quiet outline so it can't be mistaken for it. */
+.pick-row{display:flex;gap:8px;margin:18px 16px 0;width:calc(100% - 32px)}
 .pick-hero{
-  margin:18px 16px 0;width:calc(100% - 32px);height:60px;border-radius:var(--r-card);
-  background:linear-gradient(110deg,#8B6CF0,#B69CFF);
+  flex:1 1 auto;min-width:0;height:60px;border-radius:var(--r-card);
+  background:linear-gradient(110deg,#B71C2B,#E04E5A);
   display:flex;align-items:center;justify-content:center;gap:10px;
-  font-weight:600;font-size:16.5px;color:#14101F;
-  box-shadow:0 6px 26px rgba(140,110,240,.32);
+  font-weight:600;font-size:16.5px;color:#fff;white-space:nowrap;
+  box-shadow:0 6px 26px rgba(190,40,55,.32);
   transition:transform .12s,opacity .15s;
 }
-:root[data-theme="light"] .pick-hero{color:#fff;box-shadow:0 8px 26px rgba(106,72,216,.3)}
 .pick-hero:active{opacity:.9;transform:scale(.985)}
-.pick-hero svg{width:21px;height:21px}
+.pick-hero svg{width:21px;height:21px;flex:0 0 21px}
+.pick-practice{
+  flex:0 0 20%;min-width:64px;height:60px;border-radius:var(--r-card);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;
+  border:1.5px solid var(--line-strong);background:transparent;color:var(--muted);
+  font-size:10.5px;font-weight:600;letter-spacing:.02em;
+  transition:transform .12s,opacity .15s;
+}
+.pick-practice svg{width:17px;height:17px}
+.pick-practice:active{transform:scale(.96);opacity:.75}
 .search-wrap-row{display:flex;align-items:center;gap:10px;padding:14px 16px 0}
 .search-box{position:relative;flex:1}
 .search-box svg{position:absolute;left:15px;top:50%;transform:translateY(-50%);width:17px;height:17px;color:var(--muted)}
@@ -702,18 +714,6 @@ button,a,[class$="-tile"],[class$="-row"]{touch-action:manipulation}
   background:rgba(255,255,255,.55);
 }
 :root[data-theme="dark"] .wheel-cancel{border-color:rgba(255,255,255,.25);color:#F2F5FA;background:rgba(255,255,255,.07)}
-/* Practice spin: a quiet one-line text link under the hero button —
-   like "forgot password?" under a login form. No border, no fill; it
-   should disappear until someone actually reads it. */
-.luck-link{
-  margin:2px auto 0;min-height:40px;padding:0 16px;
-  display:flex;align-items:center;justify-content:center;gap:6px;
-  background:none;border:none;
-  font-size:12.5px;font-weight:550;color:var(--muted);
-}
-.luck-link span{font-weight:450}
-.luck-link svg{width:14px;height:14px;flex:0 0 14px;opacity:.75}
-.luck-link:active{opacity:.55}
 .confetti-dot{position:fixed;border-radius:2px;pointer-events:none;z-index:600;animation:cfDrop 1.4s ease-out forwards}
 @keyframes cfDrop{0%{opacity:1;transform:translate(0,0) rotate(0deg) scale(1)}100%{opacity:0;transform:translate(var(--tx),var(--ty)) rotate(600deg) scale(0)}}
 
