@@ -155,6 +155,15 @@ function deepMerge(defaults, source){
 // mid-typing feel like a page reload — same family as the Rooms-tab and
 // Tasks-header glitches. switchTab still zeroes scrollTop explicitly for
 // genuine tab changes.
+// While set, the header-collapse scroll listener treats events as position
+// sync only (updates lastY, never flips collapse state). The innerHTML
+// wipe + scrollTop restore below emits scroll events whose deltas look like
+// user swipes — desktop engines coalesce them to a net-zero delta, but iOS
+// Safari's compositor timing can deliver them separately (worse mid-
+// momentum), and a phantom few-hundred-px delta flips expand/collapse and
+// produces the real-iPhone-only header jump.
+let panelScrollGuardUntil = 0;
+
 function setPanelHTML(html){
   const panel = document.getElementById('panel');
   const st = panel.scrollTop;
@@ -165,6 +174,7 @@ function setPanelHTML(html){
   if(focusId){ try{ caret = ae.selectionStart; }catch(e){} }
   panel.innerHTML = html;
   panel.scrollTop = st;
+  panelScrollGuardUntil = performance.now() + 250;
   if(focusId){
     const el = document.getElementById(focusId);
     if(el){
@@ -3568,6 +3578,10 @@ function initScrollCollapse(){
     const y = Math.min(Math.max(this.scrollTop, 0), Math.max(this.scrollHeight - this.clientHeight, 0));
     const delta = y - lastY;
     lastY = y;
+    // Programmatic wipe+restore in flight (setPanelHTML): sync position
+    // only — these events are not user scrolling and their deltas must
+    // never flip the collapse state.
+    if(performance.now() < panelScrollGuardUntil) return;
     if(currentTab !== 'tasks') return;
     // Rooms/room-detail use the compact static header — no collapse there.
     if(tasksSubView === 'rooms' || tasksSubView === 'roomDetail') return;
