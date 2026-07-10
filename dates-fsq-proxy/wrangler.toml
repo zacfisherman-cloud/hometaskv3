@@ -1,0 +1,9 @@
+name = "dates-fsq-proxy"
+main = "worker.js"
+compatibility_date = "2025-01-01"
+
+# FSQ_SERVICE_KEY is intentionally NOT here.
+# Store it as an encrypted secret instead:
+#   cd dates-fsq-proxy && npx wrangler secret put FSQ_SERVICE_KEY
+# Paste the same Foursquare Service API Key used for lunch-fsq-proxy.
+# It will never appear in source control.

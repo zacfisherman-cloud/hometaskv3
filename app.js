@@ -1174,23 +1174,46 @@ function renderCalendar(){
 }
 
 /* ════════════════════════════════════════ DATES TAB */
+// Deployed dates-fsq-proxy Worker (Foursquare Places API; see dates-fsq-proxy/)
+const DATES_PROXY_URL = 'https://dates-fsq-proxy.zacfisherman.workers.dev';
 let searchBias = {lat:-37.8136, lon:144.9631, label:'Melbourne'};
 
-async function resolveSuburb(q){
+// Suburb/postcode → coords through Foursquare's own `near` geocoder
+// (the Worker reads the resolved centre out of the search response), so
+// location bias needs no third-party geocoding service.
+async function fsqLocate(q){
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 8000);
   try{
-    // Append state/country context to improve postcode resolution
-    const url = `https://photon.komoot.io/api/?q=${encodeURIComponent(q+' Victoria Australia')}&limit=3&lat=-37.8136&lon=144.9631`;
-    const data = await fetch(url, {signal:controller.signal}).then(r=>r.json());
-    const f = data.features.find(f => {
-      const c = f.properties.country||'';
-      return !c || c==='Australia';
-    });
-    if(f) return {lat:f.geometry.coordinates[1], lon:f.geometry.coordinates[0]};
+    const d = await fetch(`${DATES_PROXY_URL}/geocode?q=${encodeURIComponent(q)}`, {signal:controller.signal}).then(r=>r.json());
+    if(typeof d.lat === 'number' && typeof d.lon === 'number') return {lat:d.lat, lon:d.lon};
   }catch(e){}
   finally{ clearTimeout(timeoutId); }
   return null;
+}
+
+// Foursquare result → the shape the Dates tab stores and renders.
+// rating is FSQ's 0–10 score (null when the org's Pro credits are spent —
+// the Worker degrades to core fields instead of failing the search).
+function normFsqPlace(p){
+  return {
+    name: p.name || '',
+    address: (p.location?.formatted_address || '').replace(/,?\s*Australia$/i, ''),
+    rating: typeof p.rating === 'number' ? +p.rating.toFixed(1) : null,
+    category: p.categories?.[0]?.name || '',
+  };
+}
+function dateSpotIcon(cat){
+  const c = (cat || '').toLowerCase();
+  if(/museum|gallery|art|exhibit|historic|monument|memorial|castle|landmark/.test(c)) return 'landmark';
+  if(/theater|theatre|concert|music|opera|amphi|jazz/.test(c)) return 'music';
+  if(/cinema|movie/.test(c)) return 'clapperboard';
+  if(/aquarium|zoo|wildlife/.test(c)) return 'fish';
+  if(/bar|pub|brewery|winery|lounge|club|speakeasy/.test(c)) return 'martini';
+  if(/caf|coffee|tea room|bakery|dessert|ice cream|gelato/.test(c)) return 'coffee';
+  if(/casino|arcade|bowling|karaoke|golf|escape|games|amusement/.test(c)) return 'ticket';
+  if(/restaurant|dining|food|steak|pizz|sushi|bistro|diner|eatery/.test(c)) return 'utensils';
+  return 'map-pin';
 }
 
 function renderDates(){
@@ -1213,8 +1236,9 @@ function renderDates(){
     <div class="search-wrap-row">
       <div class="search-box">
         <i data-lucide="search"></i>
-        <input class="search-input" id="date-search" placeholder="Restaurant, bar, cuisine…" autocomplete="off">
+        <input class="search-input" id="date-search" placeholder="Restaurant, bar, gallery…" autocomplete="off">
       </div>
+      <button class="discover-btn" id="discover-btn"><i data-lucide="compass"></i>Discover</button>
     </div>
     <div class="search-loc-bar">
       <i data-lucide="map-pin"></i>
@@ -1226,7 +1250,7 @@ function renderDates(){
   // To Visit
   html += `<div class="sec-row"><div class="sec-title">To Visit</div><span class="sec-count">${toVisit.length} places</span></div>`;
   if(!toVisit.length){
-    html += `<div class="empty-state" style="padding:20px 24px"><i data-lucide="map-pin"></i><p>Search for restaurants to build your list</p></div>`;
+    html += `<div class="empty-state" style="padding:20px 24px"><i data-lucide="map-pin"></i><p>Search above or tap Discover to build your list</p></div>`;
   } else {
     toVisit.forEach(p => { html += toVisitCard(p); });
   }
@@ -1257,8 +1281,11 @@ function renderDates(){
     clearTimeout(timer);
     const q = e.target.value.trim();
     if(q.length < 2){ document.getElementById('search-results-panel').style.display='none'; return; }
-    timer = setTimeout(() => photonSearch(q), 380);
+    timer = setTimeout(() => fsqSearch(q), 380);
   });
+
+  // Discover swipe deck
+  document.getElementById('discover-btn').onclick = openDiscoverDeck;
 
   // Location bias — suburb or postcode
   let locTimer;
@@ -1267,10 +1294,10 @@ function renderDates(){
     const q = e.target.value.trim();
     if(!q){ searchBias = {lat:-37.8136, lon:144.9631, label:'Melbourne'}; return; }
     locTimer = setTimeout(async () => {
-      const coords = await resolveSuburb(q);
+      const coords = await fsqLocate(q);
       if(coords) searchBias = {...coords, label:q};
       const sq = document.getElementById('date-search')?.value.trim();
-      if(sq && sq.length >= 2) photonSearch(sq);
+      if(sq && sq.length >= 2) fsqSearch(sq);
     }, 600);
   });
 
@@ -1338,41 +1365,34 @@ function visitedCard(p){
   </div>`;
 }
 
-async function photonSearch(q){
+async function fsqSearch(q){
   const panel = document.getElementById('search-results-panel'); if(!panel) return;
   panel.innerHTML = '<div style="padding:14px;text-align:center;color:var(--muted);font-weight:600;font-size:14px">Searching…</div>';
   panel.style.display = 'block';
   // Without a timeout, a slow/unreachable API leaves this panel stuck on
   // "Searching…" forever with no way to tell a failure from "still loading".
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 8000);
+  const timeoutId = setTimeout(() => controller.abort(), 10000);
   try{
     // Bias toward user's chosen suburb/postcode; default is Melbourne CBD
     const {lat, lon} = searchBias;
-    const url = `https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&limit=16&lat=${lat}&lon=${lon}&zoom=14`;
-    const data = await fetch(url, {signal:controller.signal}).then(r=>r.json());
+    const res = await fetch(`${DATES_PROXY_URL}/search?q=${encodeURIComponent(q)}&lat=${lat}&lon=${lon}`, {signal:controller.signal});
+    const data = await res.json();
     clearTimeout(timeoutId);
-    const places = data.features
-      .filter(f => {
-        if(!f.properties.name) return false;
-        const country = (f.properties.country || '').trim();
-        // Only accept Australian results; if no country set, include tentatively
-        return !country || country === 'Australia';
-      })
-      .slice(0, 8)
-      .map(f=>({
-        name: f.properties.name,
-        address: [f.properties.street, f.properties.housenumber, f.properties.city || f.properties.locality]
-          .filter(Boolean).join(' ').trim() || (f.properties.state || '')
-      }));
+    if(!res.ok) throw new Error(data.error || `Search failed (${res.status})`);
+    const places = (data.results || []).map(normFsqPlace).filter(p => p.name);
     if(!places.length){
-      panel.innerHTML = '<div style="padding:14px;text-align:center;color:var(--muted);font-weight:600;font-size:14px">No Melbourne results found</div>';
+      panel.innerHTML = '<div style="padding:14px;text-align:center;color:var(--muted);font-weight:600;font-size:14px">No nearby results found</div>';
       return;
     }
     panel.innerHTML = places.map((p,i) => `
       <div class="search-result-row" data-idx="${i}">
-        <i data-lucide="utensils"></i>
-        <div><div class="sr-name">${escapeHtml(p.name)}</div>${p.address?`<div class="sr-addr">${escapeHtml(p.address)}</div>`:''}</div>
+        <i data-lucide="${dateSpotIcon(p.category)}"></i>
+        <div style="flex:1;min-width:0">
+          <div class="sr-name">${escapeHtml(p.name)}</div>
+          ${p.address || p.category ? `<div class="sr-addr">${escapeHtml([p.category, p.address].filter(Boolean).join(' · '))}</div>` : ''}
+        </div>
+        ${p.rating != null ? `<span class="sr-rating">★ ${p.rating}</span>` : ''}
       </div>`).join('');
     lucide.createIcons();
     panel.querySelectorAll('.search-result-row').forEach((el,i) => {
@@ -1382,7 +1402,7 @@ async function photonSearch(q){
           const newId = uid(), addedAt = Date.now();
           commitChange(state => {
             if(state.dates.toVisit.find(x=>x.name===p.name)) return; // re-check against fresh state too
-            state.dates.toVisit.push({id:newId, name:p.name, address:p.address, addedAt, picked:false});
+            state.dates.toVisit.push({id:newId, name:p.name, address:p.address, rating:p.rating, addedAt, picked:false});
           });
         }
         panel.style.display='none';
@@ -1395,14 +1415,144 @@ async function photonSearch(q){
     const timedOut = e.name === 'AbortError';
     panel.innerHTML = `
       <div style="padding:14px 14px 10px;text-align:center;color:var(--muted);font-weight:600;font-size:14px">
-        ${timedOut ? "Couldn't reach search — check your connection" : 'No results found'}
+        ${timedOut ? "Couldn't reach search — check your connection" : escapeHtml(e.message || 'No results found')}
       </div>
       ${timedOut ? '<button class="export-btn" id="search-retry-btn" style="margin:0 14px 14px;width:calc(100% - 28px)"><i data-lucide="refresh-cw"></i>Try again</button>' : ''}`;
     if(timedOut){
       lucide.createIcons();
-      document.getElementById('search-retry-btn')?.addEventListener('click', () => photonSearch(q));
+      document.getElementById('search-retry-btn')?.addEventListener('click', () => fsqSearch(q));
     }
   }
+}
+
+/* ── Discover: swipe deck of well-rated date spots near the bias ── */
+async function openDiscoverDeck(){
+  document.getElementById('discover-overlay')?.remove();
+  const ov = document.createElement('div');
+  ov.id = 'discover-overlay';
+  ov.innerHTML = `
+    <button id="dv-close">&#x2715;</button>
+    <div class="dv-title">Discover</div>
+    <div class="dv-sub">Date spots near ${escapeHtml(searchBias.label)}</div>
+    <div id="dv-stage"><div class="dv-msg">Finding spots…</div></div>
+    <div class="dv-btns" id="dv-btns" style="display:none">
+      <button class="dv-act dv-skip" id="dv-skip" aria-label="Skip"><i data-lucide="x"></i></button>
+      <button class="dv-act dv-add" id="dv-add" aria-label="Add to list"><i data-lucide="heart"></i></button>
+    </div>`;
+  document.body.appendChild(ov);
+  lucide.createIcons();
+  const close = ()=>{ ov.remove(); renderDates(); };
+  document.getElementById('dv-close').onclick = close;
+
+  let deck = [];
+  try{
+    const {lat, lon} = searchBias;
+    const res = await fetch(`${DATES_PROXY_URL}/discover?lat=${lat}&lon=${lon}&limit=40`);
+    const data = await res.json();
+    if(!res.ok) throw new Error(data.error || `Discover failed (${res.status})`);
+    // skip anything already on either list, and dedupe within the deck
+    const known = new Set([...S.dates.toVisit, ...S.dates.visited].map(p => normKey(p.name || '')));
+    deck = (data.results || []).map(normFsqPlace)
+      .filter(p => p.name && !known.has(normKey(p.name)))
+      .filter((p, i, arr) => arr.findIndex(x => normKey(x.name) === normKey(p.name)) === i);
+  }catch(e){
+    const st = document.getElementById('dv-stage');
+    if(st) st.innerHTML = `<div class="dv-msg">${escapeHtml(e.message || "Couldn't load suggestions")}</div>`;
+    return;
+  }
+
+  const stage = document.getElementById('dv-stage');
+  let idx = 0;
+  const GRADS = [
+    ['#8B6CF0','#B69CFF'], ['#3D9C82','#58B98E'], ['#B7562B','#E0904E'],
+    ['#2B6CB7','#4E9CE0'], ['#B72B70','#E04EA4'],
+  ];
+  function cardHTML(p, top){
+    const g = GRADS[[...p.name].reduce((a,c)=>a+c.charCodeAt(0), 0) % GRADS.length];
+    return `<div class="dv-card${top ? ' top' : ''}">
+      <div class="dv-hero" style="background:linear-gradient(130deg,${g[0]},${g[1]})">
+        <i data-lucide="${dateSpotIcon(p.category)}"></i>
+        <span class="dv-stamp dv-stamp-add">Add</span>
+        <span class="dv-stamp dv-stamp-skip">Skip</span>
+      </div>
+      <div class="dv-body">
+        <div class="dv-name">${escapeHtml(p.name)}</div>
+        <div class="dv-meta">
+          ${p.category ? `<span class="dv-cat">${escapeHtml(p.category)}</span>` : ''}
+          ${p.rating != null ? `<span class="dv-rating">★ ${p.rating}</span>` : ''}
+        </div>
+        ${p.address ? `<div class="dv-addr"><i data-lucide="map-pin"></i>${escapeHtml(p.address)}</div>` : ''}
+      </div>
+    </div>`;
+  }
+  function addPlace(p){
+    if(S.dates.toVisit.find(x => normKey(x.name) === normKey(p.name))) return;
+    const newId = uid(), addedAt = Date.now();
+    commitChange(state => {
+      if(state.dates.toVisit.find(x => normKey(x.name || '') === normKey(p.name))) return;
+      state.dates.toVisit.push({id:newId, name:p.name, address:p.address, rating:p.rating, addedAt, picked:false});
+    });
+  }
+  function showCard(){
+    document.getElementById('dv-btns').style.display = idx < deck.length ? 'flex' : 'none';
+    if(idx >= deck.length){
+      stage.innerHTML = `<div class="dv-msg">That's the lot nearby!<br>Change the "Near" suburb to explore somewhere else.</div>`;
+      return;
+    }
+    stage.innerHTML = (idx + 1 < deck.length ? cardHTML(deck[idx+1], false) : '') + cardHTML(deck[idx], true);
+    lucide.createIcons();
+    bindSwipe(stage.querySelector('.dv-card.top'), liked => {
+      if(liked) addPlace(deck[idx]);
+      idx++;
+      showCard();
+    });
+  }
+  // Swipe right = add, left = skip; buttons fling the card the same way.
+  function bindSwipe(card, onDone){
+    if(!card) return;
+    let sx=0, sy=0, dx=0, dy=0, active=false, done=false;
+    const stampAdd = card.querySelector('.dv-stamp-add');
+    const stampSkip = card.querySelector('.dv-stamp-skip');
+    const fling = liked => {
+      if(done) return; done = true;
+      const dir = liked ? 1 : -1;
+      card.style.transition = 'transform .3s ease, opacity .3s ease';
+      card.style.transform = `translate(${dir*window.innerWidth}px, ${dy*0.3}px) rotate(${dir*16}deg)`;
+      card.style.opacity = '0';
+      setTimeout(()=> onDone(liked), 230);
+    };
+    card.addEventListener('pointerdown', e => {
+      active = true; sx = e.clientX; sy = e.clientY;
+      card.setPointerCapture(e.pointerId);
+      card.style.transition = 'none';
+    });
+    card.addEventListener('pointermove', e => {
+      if(!active || done) return;
+      dx = e.clientX - sx; dy = e.clientY - sy;
+      card.style.transform = `translate(${dx}px, ${dy*0.3}px) rotate(${dx*0.05}deg)`;
+      const q = Math.min(Math.abs(dx)/90, 1);
+      stampAdd.style.opacity = dx > 0 ? q : 0;
+      stampSkip.style.opacity = dx < 0 ? q : 0;
+    });
+    const release = ()=>{
+      if(!active || done) return;
+      active = false;
+      if(Math.abs(dx) > 90){ fling(dx > 0); return; }
+      card.style.transition = 'transform .25s ease';
+      card.style.transform = '';
+      stampAdd.style.opacity = 0; stampSkip.style.opacity = 0;
+      dx = 0; dy = 0;
+    };
+    card.addEventListener('pointerup', release);
+    card.addEventListener('pointercancel', release);
+    document.getElementById('dv-add').onclick = ()=> fling(true);
+    document.getElementById('dv-skip').onclick = ()=> fling(false);
+  }
+  if(!deck.length){
+    stage.innerHTML = `<div class="dv-msg">Nothing new nearby — everything well-rated is already on your lists!</div>`;
+    return;
+  }
+  showCard();
 }
 
 /* ── Spinning wheel overlay ──────────────────── */
