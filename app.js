@@ -2095,7 +2095,7 @@ function _recipesViewHTML(mp){
             <div class="style-name">${s.name}</div>
             <div class="style-desc">${s.desc}</div>
           </div>
-        </button>`).join('') + _cookbookRowHTML();
+        </button>`).join('');
   }
   const style = MEAL_STYLES.find(s => s.id === mp.style) || MEAL_STYLES[0];
   const count = mp.proteins.length;
@@ -2118,15 +2118,7 @@ function _recipesViewHTML(mp){
     </div>
     <button class="btn-primary mp-cta" id="mp-find">Find recipes <i data-lucide="search"></i></button>
     ${_savedListHTML(mp)}
-    ${_aiSectionHTML(mp)}
-    ${_cookbookRowHTML()}`;
-}
-function _cookbookRowHTML(){
-  return `<button class="style-current ckbk" id="mp-cookbook">
-    <div class="style-ic"><i data-lucide="book-open"></i></div>
-    <div class="n">Saved recipes</div>
-    <div class="chg">${mealRecipes.length}<i data-lucide="chevron-right" style="width:13px;height:13px"></i></div>
-  </button>`;
+    ${_aiSectionHTML(mp)}`;
 }
 
 /* ── results: saved first, then AI suggestions ── */
@@ -2222,6 +2214,9 @@ function fmtQty(q){ return q==null ? '' : String(q).replace(/\.0$/,''); }
 function fmtIngredient(i){ return [fmtQty(i.qty), i.unit||'', i.item].filter(Boolean).join(' '); }
 function openRecipeView(r){
   const meta = [r.serves ? `Serves ${r.serves}` : '', r.minutes ? `${r.minutes} min` : ''].filter(Boolean).join(' · ');
+  // AI suggestions pass through here too before adoption — they have no
+  // cookbook doc yet, so edit/delete only appear for saved recipes.
+  const saved = mealRecipes.find(x => x.id === r.id);
   openSheet(`
     <div class="grabber"></div>
     <div class="sheet-head">
@@ -2232,8 +2227,34 @@ function openRecipeView(r){
     <div class="seg-lbl">Ingredients</div>
     <div class="rv-list">${(r.ingredients||[]).map(i => `<div class="rv-ing">${escapeHtml(fmtIngredient(i))}</div>`).join('') || '<div class="rv-ing" style="color:var(--muted)">None listed</div>'}</div>
     <div class="seg-lbl">Steps</div>
-    <div class="rv-list">${(r.steps||[]).map((s,i) => `<div class="rv-step"><b>${i+1}.</b> ${escapeHtml(s)}</div>`).join('') || '<div class="rv-ing" style="color:var(--muted)">None listed</div>'}</div>`,
-  ()=>{ document.getElementById('sh-close').onclick = closeSheet; });
+    <div class="rv-list">${(r.steps||[]).map((s,i) => `<div class="rv-step"><b>${i+1}.</b> ${escapeHtml(s)}</div>`).join('') || '<div class="rv-ing" style="color:var(--muted)">None listed</div>'}</div>
+    ${saved ? `<div class="rc-btns" style="margin-top:16px">
+      <button class="rc-btn del" id="rv-del" style="flex:1"><i data-lucide="trash-2"></i>&nbsp;Delete</button>
+      <button class="rc-btn add" id="rv-edit" style="flex:1"><i data-lucide="pencil"></i>&nbsp;Edit</button>
+    </div>` : ''}`,
+  ()=>{
+    document.getElementById('sh-close').onclick = closeSheet;
+    if(saved){
+      document.getElementById('rv-edit').onclick = ()=> openParseReviewSheet(saved, 'edit');
+      document.getElementById('rv-del').onclick = ()=> deleteRecipe(saved);
+    }
+  });
+}
+function deleteRecipe(r){
+  if(!confirm(`Delete “${r.name}” forever? It comes off this week's set and grocery list too. This cannot be undone.`)) return;
+  RECIPES.doc(r.id).delete().then(()=>{
+    // Optimistic cache update so the reopened list is already correct;
+    // the snapshot listener confirms shortly after.
+    mealRecipes = mealRecipes.filter(x => x.id !== r.id);
+    commitChange(state => {
+      const arr = state.mealPrep.activeRecipeIds || [];
+      const i = arr.indexOf(r.id);
+      if(i >= 0) arr.splice(i, 1);
+      regenerateGrocery(state);
+    });
+    openRecipeSearchSheet(false);
+    if(currentTab === 'meals') renderMeals();
+  }).catch(err => alert('Delete failed: ' + (err.message || err)));
 }
 /* ── grocery engine ─────────────────────────────────────────────
    Recipe-derived lines are regenerated whenever the week's set
@@ -2493,8 +2514,6 @@ function _bindMealHandlers(mp){
   if(retry) retry.onclick = requestAI;
   const pasteInstead = document.getElementById('mp-paste-instead');
   if(pasteInstead) pasteInstead.onclick = openPasteRecipeSheet;
-  const ckbk = document.getElementById('mp-cookbook');
-  if(ckbk) ckbk.onclick = ()=> openRecipeSearchSheet(false);
   const clear = document.getElementById('mp-clear');
   if(clear) clear.onclick = ()=>{ commitChange(state => { state.mealPrep.activeRecipeIds = []; regenerateGrocery(state); }); renderMeals(); };
 
@@ -2720,13 +2739,16 @@ function openRecipeSearchSheet(focusSearch){
 }
 
 function openParseReviewSheet(recipe, via){
+  // Same form serves two jobs: reviewing a fresh parse (via 'ai'/'heuristic')
+  // and editing a saved cookbook recipe in place (via 'edit').
+  const isEdit = via === 'edit';
   const mp = S.mealPrep || {style:null};
   const options = proteinOptions();
   // The parse never silently creates a tag: a new one is badged here and
   // only becomes real when you save.
   let selProtein = recipe.protein || '';
   const parsedIsNew = !!recipe.proteinIsNew && !!selProtein;
-  let selStyles = mp.style ? [mp.style] : [];
+  let selStyles = isEdit ? (recipe.styles || []).slice() : (mp.style ? [mp.style] : []);
 
   const chipRow = options.map(p =>
     `<button class="pk-chip${normalizeProtein(p)===normalizeProtein(selProtein)?' on':''}" data-pr-protein="${escapeHtml(p)}">${escapeHtml(p)}</button>`
@@ -2735,7 +2757,7 @@ function openParseReviewSheet(recipe, via){
   openSheet(`
     <div class="grabber"></div>
     <div class="sheet-head">
-      <div class="sheet-title">Check the parse</div>
+      <div class="sheet-title">${isEdit ? 'Edit recipe' : 'Check the parse'}</div>
       <button class="sheet-close" id="sh-close"><i data-lucide="x"></i></button>
     </div>
     ${via==='heuristic' ? '<div class="rc-none err" style="margin:0">The AI parse failed, so this is a rough text-scan — double-check every field.</div>' : ''}
@@ -2759,7 +2781,7 @@ function openParseReviewSheet(recipe, via){
     <div class="seg-lbl" style="margin-bottom:6px">Steps <span style="text-transform:none;letter-spacing:0">— one per line</span></div>
     <textarea class="modal-notes" id="pr-steps" style="min-height:120px">${escapeHtml((recipe.steps||[]).join('\n'))}</textarea>
     <div class="rc-none err" id="pr-err" style="display:none;margin:0"></div>
-    <button class="btn-primary" id="pr-save"><i data-lucide="check"></i>Save recipe</button>`,
+    <button class="btn-primary" id="pr-save"><i data-lucide="check"></i>${isEdit ? 'Save changes' : 'Save recipe'}</button>`,
   ()=>{
     document.getElementById('sh-close').onclick = closeSheet;
     const customInput = document.getElementById('pr-protein-custom');
@@ -2794,21 +2816,37 @@ function openParseReviewSheet(recipe, via){
       const steps = document.getElementById('pr-steps').value.split('\n').map(s => s.replace(/^\d+[.)]\s*/, '').trim()).filter(Boolean);
       const saveBtn = document.getElementById('pr-save');
       saveBtn.disabled = true; saveBtn.textContent = 'Saving…';
-      // Surface failures instead of a console-only catch (root cause of the
-      // "lamb tag never appeared" bug: production rules rejected the write
-      // and nothing told you).
-      RECIPES.doc(uid()).set({
+      const doc = {
         name, protein: match || chosen, styles: selStyles,
         serves: parseInt(document.getElementById('pr-serves').value) || null,
         minutes: parseInt(document.getElementById('pr-minutes').value) || null,
-        ingredients, steps, source: 'pasted', createdAt: Date.now(),
-      }).then(() => {
-        closeSheet();
+        ingredients, steps,
+        source: isEdit ? (recipe.source || 'pasted') : 'pasted',
+        createdAt: isEdit ? (recipe.createdAt || Date.now()) : Date.now(),
+      };
+      // Surface failures instead of a console-only catch (root cause of the
+      // "lamb tag never appeared" bug: production rules rejected the write
+      // and nothing told you).
+      RECIPES.doc(isEdit ? recipe.id : uid()).set(doc).then(() => {
+        if(isEdit){
+          // Optimistic cache update so the grocery regen and the reopened
+          // list see the new version before the snapshot round-trips.
+          const updated = {id: recipe.id, ...doc};
+          const i = mealRecipes.findIndex(x => x.id === recipe.id);
+          if(i >= 0) mealRecipes[i] = updated;
+          if((S.mealPrep?.activeRecipeIds || []).includes(recipe.id)){
+            commitChange(state => regenerateGrocery(state, {[recipe.id]: updated}));
+          }
+          openRecipeSearchSheet(false);
+        } else {
+          closeSheet();
+        }
         renderMeals(); // listener refreshes the cache; picker options update with any new tag
       }).catch(err => {
         const errEl = document.getElementById('pr-err');
         if(errEl){ errEl.textContent = 'Save failed: ' + (err.message || err); errEl.style.display = 'block'; }
-        saveBtn.disabled = false; saveBtn.innerHTML = '<i data-lucide="check"></i>Save recipe';
+        saveBtn.disabled = false;
+        saveBtn.innerHTML = '<i data-lucide="check"></i>' + (isEdit ? 'Save changes' : 'Save recipe');
         lucide.createIcons();
       });
       return;

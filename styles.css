@@ -895,13 +895,8 @@ body.meals .sheet-date-input{color-scheme:light}
 }
 .rs-add.on{background:var(--acc-grad);border:none;color:var(--acc-ink)}
 .rs-add svg{width:18px;height:18px}
-.ckbk-row{
-  display:flex;align-items:center;gap:12px;padding:12px 4px;min-height:56px;
-  border-bottom:1px solid var(--line);width:100%;text-align:left;
-}
-.ckbk-row:last-of-type{border-bottom:none}
-.style-current.ckbk{background:var(--card);border-color:var(--line)}
-.style-current.ckbk .n{color:var(--ink)}
+.rc-btn.del{border-color:var(--red);color:var(--red)}
+.rc-btn.del:active{background:var(--red-soft)}
 .g-add .plus{
   width:26px;height:26px;border-radius:50%;flex:0 0 26px;
   border:1.5px dashed var(--sky-deep);opacity:.8;
