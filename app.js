@@ -1205,10 +1205,7 @@ function renderDates(){
 
   let html = `
     <button class="pick-hero" id="pick-btn"><i data-lucide="dice-5"></i>Gamble Your Date</button>
-    <button class="luck-test" id="test-luck-btn">
-      <span class="lt-ic"><i data-lucide="eye"></i></span>
-      <span class="lt-txt"><span class="lt-t">Test your luck</span><span class="lt-s">Practice spin — nothing counts</span></span>
-    </button>
+    <button class="luck-link" id="test-luck-btn"><i data-lucide="dices"></i>Test your luck<span> — practice spin, nothing counts</span></button>
     <div class="search-wrap-row">
       <div class="search-box">
         <i data-lucide="search"></i>
@@ -2074,7 +2071,7 @@ function renderMeals(){
       <button class="tv-chip${!inGrocery?' sel':''}" id="mv-recipes"><i data-lucide="book-open"></i>Recipes</button>
       <button class="tv-chip${inGrocery?' sel':''}" id="mv-grocery"><i data-lucide="shopping-basket"></i>Grocery</button>
     </div>
-    <button class="paste-pill" id="mv-paste"><i data-lucide="clipboard-paste"></i>Paste recipe</button>
+    <button class="paste-pill" id="mv-paste"><i data-lucide="book-plus"></i>Add a recipe</button>
   </div>`;
 
   if(inGrocery){
@@ -2087,7 +2084,7 @@ function renderMeals(){
 
   document.getElementById('mv-recipes').onclick = ()=>{ mealSubView='recipes'; renderMeals(); };
   document.getElementById('mv-grocery').onclick = ()=>{ mealSubView='grocery'; renderMeals(); };
-  document.getElementById('mv-paste').onclick = openPasteRecipeSheet;
+  document.getElementById('mv-paste').onclick = openAddRecipeSheet;
   _bindMealHandlers(mp);
   if(inGrocery) _bindGroceryHandlers(mp);
 }
@@ -2533,7 +2530,7 @@ function _bindMealHandlers(mp){
   const retry = document.getElementById('mp-retry');
   if(retry) retry.onclick = requestAI;
   const pasteInstead = document.getElementById('mp-paste-instead');
-  if(pasteInstead) pasteInstead.onclick = openPasteRecipeSheet;
+  if(pasteInstead) pasteInstead.onclick = openAddRecipeSheet;
   const clear = document.getElementById('mp-clear');
   if(clear) clear.onclick = ()=>{ commitChange(state => { state.mealPrep.activeRecipeIds = []; regenerateGrocery(state); }); renderMeals(); };
 
@@ -2595,7 +2592,6 @@ function _bindMealHandlers(mp){
 }
 
 /* ── paste → AI parse → review-before-save ── */
-const ING_UNITS = new Set(['g','kg','ml','l','tbsp','tsp','cup','cups','bunch','head','heads','can','cans','clove','cloves','slice','slices','piece','pieces','pack','packs']);
 const QTY_GLYPHS = {'¼':1/4,'½':1/2,'¾':3/4,'⅓':1/3,'⅔':2/3,'⅛':1/8,'⅜':3/8,'⅝':5/8,'⅞':7/8};
 function parseQtyToken(t){
   if(!t) return null;
@@ -2607,16 +2603,6 @@ function parseQtyToken(t){
   if(m && Number(m[3])) return Number(m[1] || 0) + Number(m[2]) / Number(m[3]);
   const n = parseFloat(t.replace(',', '.'));
   return Number.isFinite(n) ? n : null;
-}
-function parseIngredientLine(line){
-  const t = line.trim(); if(!t) return null;
-  const tokens = t.split(/\s+/);
-  let qty = parseQtyToken(tokens[0]);
-  if(qty != null) tokens.shift();
-  let unit = null;
-  if(qty != null && tokens.length > 1 && ING_UNITS.has((tokens[0]||'').toLowerCase())) unit = tokens.shift().toLowerCase();
-  const item = tokens.join(' ').trim();
-  return item ? {qty, unit, item} : {qty:null, unit:null, item:t};
 }
 
 async function proxyPost(path, body, timeoutMs){
@@ -2648,25 +2634,47 @@ async function runParseFlow(text, btn, errEl, restoreHTML){
     lucide.createIcons();
   }
 }
-function openPasteRecipeSheet(){
+function openAddRecipeSheet(){
+  // Three peer entry methods as tabs; panes stay in the DOM so switching
+  // tabs never loses half-typed input. "Enter manually" embeds the same
+  // shared form the parse-review and edit screens use.
+  const manualForm = recipeFormParts({}, 'manual');
   openSheet(`
     <div class="grabber"></div>
     <div class="sheet-head">
       <div class="sheet-title">Add a recipe</div>
       <button class="sheet-close" id="sh-close"><i data-lucide="x"></i></button>
     </div>
-    <div class="seg-lbl" style="margin-bottom:6px">From a link</div>
-    <div style="display:flex;gap:8px">
-      <input class="plain-input" id="pp-url" type="url" placeholder="https://…" style="flex:1" autocomplete="off">
-      <button class="btn-primary" id="pp-fetch" style="width:auto;flex:0 0 auto;padding:0 18px;height:48px;margin:0">Fetch</button>
+    <div class="chips">
+      <div class="chip sel" data-ar-tab="link">From a link</div>
+      <div class="chip" data-ar-tab="paste">Paste text</div>
+      <div class="chip" data-ar-tab="manual">Enter manually</div>
     </div>
-    <div class="seg-lbl" style="margin:8px 0 6px">Or paste the text</div>
-    <textarea class="modal-notes" id="pp-text" style="min-height:150px" placeholder="Paste the whole thing here…"></textarea>
-    <div class="rc-none err" id="pp-err" style="display:none;margin:0"></div>
-    <button class="btn-primary" id="pp-parse"><i data-lucide="wand-2"></i>Parse it</button>`,
+    <div class="ar-pane" id="ar-pane-link">
+      <div class="seg-lbl">Link to the recipe</div>
+      <div style="display:flex;gap:8px">
+        <input class="plain-input" id="pp-url" type="url" placeholder="https://…" style="flex:1" autocomplete="off">
+        <button class="btn-primary" id="pp-fetch" style="width:auto;flex:0 0 auto;padding:0 18px;height:48px;margin:0">Fetch</button>
+      </div>
+      <div class="rc-none err" id="pp-url-err" style="display:none;margin:0"></div>
+    </div>
+    <div class="ar-pane hidden" id="ar-pane-paste">
+      <div class="seg-lbl">Paste the whole recipe</div>
+      <textarea class="modal-notes" id="pp-text" style="min-height:150px" placeholder="Paste the whole thing here…"></textarea>
+      <div class="rc-none err" id="pp-err" style="display:none;margin:0"></div>
+      <button class="btn-primary" id="pp-parse"><i data-lucide="wand-2"></i>Parse it</button>
+    </div>
+    <div class="ar-pane hidden" id="ar-pane-manual">${manualForm.html}</div>`,
   ()=>{
     document.getElementById('sh-close').onclick = closeSheet;
+    document.querySelectorAll('[data-ar-tab]').forEach(el => el.addEventListener('click', ()=>{
+      document.querySelectorAll('[data-ar-tab]').forEach(e => e.classList.toggle('sel', e===el));
+      ['link','paste','manual'].forEach(t =>
+        document.getElementById('ar-pane-'+t).classList.toggle('hidden', t!==el.dataset.arTab));
+    }));
+    manualForm.bind();
     const errEl = document.getElementById('pp-err');
+    const urlErrEl = document.getElementById('pp-url-err');
     document.getElementById('pp-parse').onclick = ()=>{
       errEl.style.display = 'none';
       const text = document.getElementById('pp-text').value.trim();
@@ -2674,23 +2682,22 @@ function openPasteRecipeSheet(){
       runParseFlow(text, document.getElementById('pp-parse'), errEl, '<i data-lucide="wand-2"></i>Parse it');
     };
     document.getElementById('pp-fetch').onclick = async ()=>{
-      errEl.style.display = 'none';
+      urlErrEl.style.display = 'none';
       const url = document.getElementById('pp-url').value.trim();
-      if(!/^https?:\/\//i.test(url)){ errEl.textContent = 'Enter a full link starting with http(s)://'; errEl.style.display = 'block'; return; }
+      if(!/^https?:\/\//i.test(url)){ urlErrEl.textContent = 'Enter a full link starting with http(s)://'; urlErrEl.style.display = 'block'; return; }
       if(MEAL_PROXY_URL.includes('YOUR-SUBDOMAIN')){
-        errEl.textContent = 'The meal-prep-proxy Worker is not deployed yet.'; errEl.style.display = 'block'; return;
+        urlErrEl.textContent = 'The meal-prep-proxy Worker is not deployed yet.'; urlErrEl.style.display = 'block'; return;
       }
       const btn = document.getElementById('pp-fetch');
       btn.disabled = true; btn.textContent = 'Fetching…';
       try{
         const data = await proxyPost('/fetch', {url}, 25000);
         document.getElementById('pp-text').value = data.text || '';
-        await runParseFlow(data.text || '', btn, errEl, 'Fetch');
+        await runParseFlow(data.text || '', btn, urlErrEl, 'Fetch');
       }catch(e){
-        errEl.textContent = (e.name==='AbortError' ? 'That site took too long to respond' : e.message) + ' — paste the recipe text below instead.';
-        errEl.style.display = 'block';
+        urlErrEl.textContent = (e.name==='AbortError' ? 'That site took too long to respond' : e.message) + ' — try the Paste text tab instead.';
+        urlErrEl.style.display = 'block';
         btn.disabled = false; btn.textContent = 'Fetch';
-        document.getElementById('pp-text').focus();
       }
     };
   });
@@ -2762,9 +2769,15 @@ function openRecipeSearchSheet(focusSearch){
   });
 }
 
-function openParseReviewSheet(recipe, via){
-  // Same form serves two jobs: reviewing a fresh parse (via 'ai'/'heuristic')
-  // and editing a saved cookbook recipe in place (via 'edit').
+// Unit suggestions for the ingredient unit field — free text with these
+// offered; grocery consolidation normalizes aliases via normUnit anyway.
+const ING_UNIT_SUGGEST = ['g','kg','ml','l','cup','tbsp','tsp','clove','can','bunch','head','slice','piece','pack'];
+
+// One shared recipe form serves three jobs: reviewing a fresh parse
+// (via 'ai'/'heuristic'), editing a saved recipe (via 'edit'), and the
+// "Enter manually" tab of Add a recipe (via 'manual'). Returns {html, bind}
+// so it can live in its own sheet or inside another sheet's tab pane.
+function recipeFormParts(recipe, via){
   const isEdit = via === 'edit';
   const mp = S.mealPrep || {style:null};
   const options = proteinOptions();
@@ -2778,25 +2791,26 @@ function openParseReviewSheet(recipe, via){
     `<button class="pk-chip${normalizeProtein(p)===normalizeProtein(selProtein)?' on':''}" data-pr-protein="${escapeHtml(p)}">${escapeHtml(p)}</button>`
   ).join('') + (parsedIsNew ? `<button class="pk-chip on newtag" data-pr-protein="${escapeHtml(selProtein)}">${escapeHtml(selProtein)} · new</button>` : '');
 
-  // Ingredients and steps edit as one row per line (like a shopping list),
-  // not a raw text blob — add/remove/edit a single line without touching
-  // the rest. Rows parse back through parseIngredientLine on save.
-  const lnRowHTML = (val, kind, n) => `<div class="ln-row">
-      ${kind==='step' ? `<span class="ln-num">${n}</span>` : ''}
-      <textarea class="ln-input" rows="1" placeholder="${kind==='step' ? 'Describe this step…' : 'e.g. 200 g chicken'}">${escapeHtml(val)}</textarea>
+  // Ingredients edit as three fields per row — amount, unit, item — so
+  // nobody has to know a "qty unit item" string convention. Steps stay
+  // one auto-growing text row each.
+  const ingRowHTML = ing => `<div class="ln-row">
+      <input class="ln-input ing-qty" inputmode="decimal" placeholder="Qty" autocomplete="off" value="${escapeHtml(ing.qty != null ? fmtQty(ing.qty) : '')}">
+      <input class="ln-input ing-unit" list="ing-units" placeholder="Unit" autocomplete="off" autocapitalize="none" value="${escapeHtml(ing.unit || '')}">
+      <textarea class="ln-input ing-item" rows="1" placeholder="Ingredient">${escapeHtml(ing.item || '')}</textarea>
       <button class="ln-del" aria-label="Remove line"><i data-lucide="x"></i></button>
     </div>`;
-  const ingVals  = (recipe.ingredients||[]).map(fmtIngredient);
+  const stepRowHTML = (val, n) => `<div class="ln-row">
+      <span class="ln-num">${n}</span>
+      <textarea class="ln-input" rows="1" placeholder="Describe this step…">${escapeHtml(val)}</textarea>
+      <button class="ln-del" aria-label="Remove line"><i data-lucide="x"></i></button>
+    </div>`;
+  const ings     = (recipe.ingredients||[]).slice();
   const stepVals = (recipe.steps||[]).slice();
-  if(!ingVals.length)  ingVals.push('');
+  if(!ings.length)     ings.push({});
   if(!stepVals.length) stepVals.push('');
 
-  openSheet(`
-    <div class="grabber"></div>
-    <div class="sheet-head">
-      <div class="sheet-title">${isEdit ? 'Edit recipe' : 'Check the parse'}</div>
-      <button class="sheet-close" id="sh-close"><i data-lucide="x"></i></button>
-    </div>
+  const html = `
     ${via==='heuristic' ? '<div class="rc-none err" style="margin:0">The AI parse failed, so this is a rough text-scan — double-check every field.</div>' : ''}
     <div class="frm-sec">
       <div class="seg-lbl">Title</div>
@@ -2820,41 +2834,43 @@ function openParseReviewSheet(recipe, via){
         <input class="plain-input" id="pr-minutes" type="number" min="1" max="1440" value="${recipe.minutes ?? ''}"></div>
     </div>
     <div class="frm-sec rule">
-      <div class="seg-lbl">Ingredients <span style="text-transform:none;letter-spacing:0">— amount, then the item</span></div>
-      <div class="ln-rows" id="pr-ing-rows">${ingVals.map(v => lnRowHTML(v, 'ing')).join('')}</div>
+      <div class="seg-lbl">Ingredients <span style="text-transform:none;letter-spacing:0">— amount · unit · item</span></div>
+      <datalist id="ing-units">${ING_UNIT_SUGGEST.map(u => `<option value="${u}"></option>`).join('')}</datalist>
+      <div class="ln-rows" id="pr-ing-rows">${ings.map(ingRowHTML).join('')}</div>
       <button class="ln-add" id="pr-ing-add"><i data-lucide="plus"></i>Add ingredient</button>
     </div>
     <div class="frm-sec rule">
       <div class="seg-lbl">Steps</div>
-      <div class="ln-rows" id="pr-step-rows">${stepVals.map((v,i) => lnRowHTML(v, 'step', i+1)).join('')}</div>
+      <div class="ln-rows" id="pr-step-rows">${stepVals.map((v,i) => stepRowHTML(v, i+1)).join('')}</div>
       <button class="ln-add" id="pr-step-add"><i data-lucide="plus"></i>Add step</button>
     </div>
     <div class="rc-none err" id="pr-err" style="display:none;margin:0"></div>
-    <button class="btn-primary" id="pr-save"><i data-lucide="check"></i>${isEdit ? 'Save changes' : 'Save recipe'}</button>`,
-  ()=>{
-    document.getElementById('sh-close').onclick = closeSheet;
+    <button class="btn-primary" id="pr-save"><i data-lucide="check"></i>${isEdit ? 'Save changes' : 'Save recipe'}</button>`;
+
+  function bind(){
     // Line-row plumbing: auto-grow textareas, per-row delete, append-and-focus
-    function bindLines(wrapId, addId, kind){
+    function bindLines(wrapId, addId, makeRow){
       const wrap = document.getElementById(wrapId);
       const renum = ()=> wrap.querySelectorAll('.ln-num').forEach((n,i)=> n.textContent = i+1);
       const grow = t => { t.style.height='auto'; t.style.height = t.scrollHeight+'px'; };
       const bindRow = row => {
-        const t = row.querySelector('.ln-input');
-        t.addEventListener('input', ()=> grow(t));
-        grow(t);
+        row.querySelectorAll('textarea.ln-input').forEach(t => {
+          t.addEventListener('input', ()=> grow(t));
+          grow(t);
+        });
         row.querySelector('.ln-del').onclick = ()=>{ row.remove(); renum(); };
       };
       wrap.querySelectorAll('.ln-row').forEach(bindRow);
       document.getElementById(addId).onclick = ()=>{
-        wrap.insertAdjacentHTML('beforeend', lnRowHTML('', kind, wrap.children.length+1));
+        wrap.insertAdjacentHTML('beforeend', makeRow(wrap.children.length+1));
         const row = wrap.lastElementChild;
         bindRow(row);
         lucide.createIcons();
-        row.querySelector('.ln-input').focus();
+        (row.querySelector('.ing-qty') || row.querySelector('.ln-input')).focus();
       };
     }
-    bindLines('pr-ing-rows', 'pr-ing-add', 'ing');
-    bindLines('pr-step-rows', 'pr-step-add', 'step');
+    bindLines('pr-ing-rows', 'pr-ing-add', ()=> ingRowHTML({}));
+    bindLines('pr-step-rows', 'pr-step-add', n => stepRowHTML('', n));
     const customInput = document.getElementById('pr-protein-custom');
     document.querySelectorAll('[data-pr-protein]').forEach(el => el.addEventListener('click', ()=>{
       selProtein = el.dataset.prProtein;
@@ -2883,8 +2899,17 @@ function openParseReviewSheet(recipe, via){
       if(!chosen){ customInput.focus(); return; }
       // If an edited/custom tag normalizes onto an existing option, snap to it
       const match = proteinOptions().find(p => normalizeProtein(p) === normalizeProtein(chosen));
-      const ingredients = [...document.querySelectorAll('#pr-ing-rows .ln-input')]
-        .map(t => parseIngredientLine(t.value)).filter(Boolean);
+      // Three-field rows collect straight into the stored shape — a row
+      // with no item text is treated as blank and dropped.
+      const ingredients = [...document.querySelectorAll('#pr-ing-rows .ln-row')].map(row => {
+        const item = row.querySelector('.ing-item').value.trim();
+        if(!item) return null;
+        return {
+          qty:  parseQtyToken(row.querySelector('.ing-qty').value.trim()),
+          unit: row.querySelector('.ing-unit').value.trim().toLowerCase() || null,
+          item,
+        };
+      }).filter(Boolean);
       const steps = [...document.querySelectorAll('#pr-step-rows .ln-input')]
         .map(t => t.value.replace(/^\d+[.)]\s*/, '').trim()).filter(Boolean);
       const saveBtn = document.getElementById('pr-save');
@@ -2894,7 +2919,7 @@ function openParseReviewSheet(recipe, via){
         serves: parseInt(document.getElementById('pr-serves').value) || null,
         minutes: parseInt(document.getElementById('pr-minutes').value) || null,
         ingredients, steps,
-        source: isEdit ? (recipe.source || 'pasted') : 'pasted',
+        source: isEdit ? (recipe.source || 'pasted') : (via === 'manual' ? 'manual' : 'pasted'),
         createdAt: isEdit ? (recipe.createdAt || Date.now()) : Date.now(),
       };
       // Surface failures instead of a console-only catch (root cause of the
@@ -2924,6 +2949,22 @@ function openParseReviewSheet(recipe, via){
       });
       return;
     };
+  }
+  return {html, bind};
+}
+
+function openParseReviewSheet(recipe, via){
+  const form = recipeFormParts(recipe, via);
+  openSheet(`
+    <div class="grabber"></div>
+    <div class="sheet-head">
+      <div class="sheet-title">${via === 'edit' ? 'Edit recipe' : 'Check the parse'}</div>
+      <button class="sheet-close" id="sh-close"><i data-lucide="x"></i></button>
+    </div>
+    ${form.html}`,
+  ()=>{
+    document.getElementById('sh-close').onclick = closeSheet;
+    form.bind();
   });
 }
 

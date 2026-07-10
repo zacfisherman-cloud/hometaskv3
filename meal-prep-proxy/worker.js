@@ -263,7 +263,7 @@ ${text}
 
 Return JSON with exactly this shape:
 {"name":"...","protein":"...","serves":4,"minutes":30,"ingredients":[{"qty":500,"unit":"g","item":"chicken thigh"}],"steps":["..."]}
-Rules: protein is the single main protein tag. qty is a number or null; unit is a short string or null. serves/minutes numbers or null if not stated. Keep ingredient items short (no quantities inside item).`;
+Rules: protein is the single main protein tag. qty is a plain number or null (convert fractions like 1/2 to decimals). unit is one of g, kg, ml, l, cup, tbsp, tsp, clove, can, bunch, head, slice, piece, pack — or null if the ingredient has no unit. serves/minutes numbers or null if not stated. Keep ingredient items short: the item is the food name only, never quantities or units inside it.`;
 
   const { obj, via } = await askForJSON(env, system, user, 1600);
   let recipe, source;
@@ -308,7 +308,7 @@ Do NOT suggest anything with these names (already in their cookbook): ${avoid.jo
 
 Return JSON with exactly this shape:
 {"recipes":[{"name":"...","protein":"...","serves":4,"minutes":30,"summary":"one appetising sentence","ingredients":[{"qty":500,"unit":"g","item":"chicken thigh"}],"steps":["..."]}]}
-Rules: 6-10 ingredients each with numeric qty (or null) and short unit (g, ml, tbsp, head, can, null...). 4-6 concise steps each. Keep names short and appealing.`;
+Rules: 6-10 ingredients each with numeric qty (or null, fractions as decimals) and unit one of g, kg, ml, l, cup, tbsp, tsp, clove, can, bunch, head, slice, piece, pack — or null. The item field is the food name only, never quantities or units inside it. 4-6 concise steps each. Keep names short and appealing.`;
 
   const { obj } = await askForJSON(env, system, user, 2400);
   if (!obj || !Array.isArray(obj.recipes)) {

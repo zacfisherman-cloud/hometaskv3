@@ -702,25 +702,18 @@ button,a,[class$="-tile"],[class$="-row"]{touch-action:manipulation}
   background:rgba(255,255,255,.55);
 }
 :root[data-theme="dark"] .wheel-cancel{border-color:rgba(255,255,255,.25);color:#F2F5FA;background:rgba(255,255,255,.07)}
-/* Practice spin: deliberately quieter sibling of .pick-hero — same width
-   and radius, but dashed outline + soft fill signals "doesn't count" */
-.luck-test{
-  margin:10px 16px 0;width:calc(100% - 32px);min-height:58px;
-  display:flex;align-items:center;justify-content:center;gap:12px;
-  padding:9px 18px;text-align:left;
-  border:1.5px dashed var(--luck);border-radius:var(--r-card);
-  background:transparent;transition:transform .12s,opacity .15s;
+/* Practice spin: a quiet one-line text link under the hero button —
+   like "forgot password?" under a login form. No border, no fill; it
+   should disappear until someone actually reads it. */
+.luck-link{
+  margin:2px auto 0;min-height:40px;padding:0 16px;
+  display:flex;align-items:center;justify-content:center;gap:6px;
+  background:none;border:none;
+  font-size:12.5px;font-weight:550;color:var(--muted);
 }
-.luck-test:active{transform:scale(.985);opacity:.85}
-.lt-ic{
-  width:36px;height:36px;flex:0 0 36px;border-radius:12px;
-  background:var(--luck-soft);color:var(--luck);
-  display:flex;align-items:center;justify-content:center;
-}
-.lt-ic svg{width:18px;height:18px}
-.lt-txt{display:flex;flex-direction:column;min-width:0}
-.lt-t{font-weight:650;font-size:14.5px;color:var(--luck);letter-spacing:.01em}
-.lt-s{font-weight:500;font-size:12px;color:var(--muted);margin-top:1px}
+.luck-link span{font-weight:450}
+.luck-link svg{width:14px;height:14px;flex:0 0 14px;opacity:.75}
+.luck-link:active{opacity:.55}
 .confetti-dot{position:fixed;border-radius:2px;pointer-events:none;z-index:600;animation:cfDrop 1.4s ease-out forwards}
 @keyframes cfDrop{0%{opacity:1;transform:translate(0,0) rotate(0deg) scale(1)}100%{opacity:0;transform:translate(var(--tx),var(--ty)) rotate(600deg) scale(0)}}
 
@@ -906,6 +899,13 @@ body.meals .sheet-date-input{color-scheme:light}
 }
 .ln-add:active{background:var(--sky-soft)}
 .ln-add svg{width:16px;height:16px}
+/* three-field ingredient rows: amount · unit · item */
+.ing-qty{flex:0 0 56px;width:56px;padding:12px 6px;text-align:center}
+.ing-unit{flex:0 0 72px;width:72px;padding:12px 6px;text-align:center}
+.ing-item{flex:1;min-width:0}
+/* Add-a-recipe sheet: tab panes (kept in DOM so typed input survives tab switches) */
+.ar-pane{display:flex;flex-direction:column;gap:14px}
+.ar-pane.hidden{display:none}
 
 /* ── Meals: grocery list (stage 5) ───────────────────────────── */
 .g-item{
