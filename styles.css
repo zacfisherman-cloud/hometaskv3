@@ -742,25 +742,36 @@ button,a,[class$="-tile"],[class$="-row"]{touch-action:manipulation}
   --sh-lg:0 24px 60px rgba(33,80,120,.2);
   --glow-acc:0 4px 22px rgba(50,140,100,.2);
 }
-/* When the rest of the app is in night mode, dim the daylight ~30%
-   ("paper under lamplight") so switching tabs at 11pm isn't a flash —
-   same day language, lower luminance, still no dark mode here. */
+/* Night mode Meals: "paper under lamplight" — a true dark variant that
+   keeps the tab's green identity (warm green-tinted darks, the same
+   green accent gradient) rather than the ink-navy the other tabs use.
+   The manual Settings toggle drives it via :root[data-theme="dark"];
+   the light palette above is untouched. */
 :root[data-theme="dark"] body.meals{
-  --bg:#D3D9E2; --card:#E2E7ED; --surface:#E2E7ED; --sheet:#E6EAF0;
-  --muted:#475A71;
-  --line:rgba(22,32,46,.12); --line-strong:rgba(22,32,46,.26);
-  --ring-track:rgba(22,32,46,.10);
-  --sky-deep:#216245; --sky-soft:rgba(33,98,69,.12);
+  --bg:#141A17; --card:#1C2420; --surface:#1C2420; --sheet:#1F2823;
+  --ink:#E9F0EA; --ink-soft:#B9C8BD; --muted:#8CA092;
+  --line:rgba(233,240,234,.10); --line-strong:rgba(233,240,234,.24);
+  --ring-track:rgba(233,240,234,.09);
+  --acc-a:#58B98E; --acc-b:#3D9C82;
+  --acc-grad:linear-gradient(100deg,#58B98E,#3D9C82);
+  --sky:#4FBF97; --sky-deep:#7CD6B0; --sky-soft:rgba(124,214,176,.13); --sky-tint:rgba(233,240,234,.05);
+  --green:#5ED4B4;  --green-soft:rgba(94,212,180,.13);
+  --gold:#E7BB6D;   --gold-soft:rgba(231,187,109,.14);
+  --red:#F2857B;    --red-soft:rgba(242,133,123,.14);
+  --luck:#B69CFF;   --luck-soft:rgba(182,156,255,.15); --luck-deep:#8B6CF0;
   --hdr-sky:
-    radial-gradient(300px 190px at 85% -30%, rgba(150,195,165,.35), transparent 70%),
-    radial-gradient(280px 170px at 8% -12%, rgba(100,180,150,.28), transparent 70%),
-    linear-gradient(180deg,#CBD4DA 0%, var(--bg) 100%);
-  --hdr-glass:rgba(211,217,226,.94);
-  --shell:#AEB9C6;
-  --sh-sm:0 3px 12px rgba(30,50,75,.10);
-  --sh-md:0 10px 28px rgba(30,50,75,.14);
+    radial-gradient(300px 190px at 85% -30%, rgba(70,150,115,.28), transparent 70%),
+    radial-gradient(280px 170px at 8% -12%, rgba(50,125,95,.24), transparent 70%),
+    linear-gradient(180deg,#18211D 0%, var(--bg) 100%);
+  --hdr-glass:rgba(20,26,23,.92);
+  --shell:#0B0F0D;
+  --sh-sm:0 3px 12px rgba(0,0,0,.35);
+  --sh-md:0 10px 28px rgba(0,0,0,.45);
+  --sh-lg:0 24px 60px rgba(0,0,0,.55);
+  --glow-acc:0 4px 22px rgba(70,190,140,.22);
 }
 body.meals .sheet-date-input{color-scheme:light}
+:root[data-theme="dark"] body.meals .sheet-date-input{color-scheme:dark}
 
 /* ── Meals: style cards + protein picker (stage 2) ───────────── */
 .style-card{
