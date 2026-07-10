@@ -2214,7 +2214,21 @@ async function fetchSuggestions(mp){
 }
 
 /* ── recipe detail viewer ── */
-function fmtQty(q){ return q==null ? '' : String(q).replace(/\.0$/,''); }
+// Kitchen-style quantity display: snap near-misses onto common cooking
+// fractions (the AI parse returns float32 artifacts like 0.33333334326744
+// for a third) and never show more than 2 decimals otherwise. Everything
+// printed here must survive parseQtyToken on the way back in.
+const QTY_FRACTIONS = [[1/8,'⅛'],[1/4,'¼'],[1/3,'⅓'],[3/8,'⅜'],[1/2,'½'],[5/8,'⅝'],[2/3,'⅔'],[3/4,'¾'],[7/8,'⅞']];
+function fmtQty(q){
+  if(q == null) return '';
+  if(typeof q !== 'number' || !isFinite(q)) return String(q);
+  const whole = Math.floor(q + 1e-6);
+  const frac = q - whole;
+  if(frac < 0.01 || frac > 0.99) return String(Math.round(q));
+  const hit = QTY_FRACTIONS.find(([v]) => Math.abs(frac - v) <= 0.012);
+  if(hit) return (whole || '') + hit[1];
+  return String(parseFloat(q.toFixed(2)));
+}
 function fmtIngredient(i){ return [fmtQty(i.qty), i.unit||'', i.item].filter(Boolean).join(' '); }
 function openRecipeView(r){
   const meta = [r.serves ? `Serves ${r.serves}` : '', r.minutes ? `${r.minutes} min` : ''].filter(Boolean).join(' · ');
@@ -2284,10 +2298,9 @@ function normUnit(u){
 }
 function prettyQty(qty, unit){
   if(qty == null) return '';
-  if(unit === 'g'  && qty >= 1000) return (Math.round(qty/100)/10) + ' kg';
-  if(unit === 'ml' && qty >= 1000) return (Math.round(qty/100)/10) + ' l';
-  const q = Math.round(qty*100)/100;
-  return q + (unit ? ' ' + unit : '');
+  if(unit === 'g'  && qty >= 1000) return fmtQty(Math.round(qty/100)/10) + ' kg';
+  if(unit === 'ml' && qty >= 1000) return fmtQty(Math.round(qty/100)/10) + ' l';
+  return fmtQty(qty) + (unit ? ' ' + unit : '');
 }
 // A recipe logs as "eaten" the moment ALL of its derived grocery lines are
 // checked while it is still in the week's set. loggedIds guards against
@@ -2580,11 +2593,15 @@ function _bindMealHandlers(mp){
 
 /* ── paste → AI parse → review-before-save ── */
 const ING_UNITS = new Set(['g','kg','ml','l','tbsp','tsp','cup','cups','bunch','head','heads','can','cans','clove','cloves','slice','slices','piece','pieces','pack','packs']);
+const QTY_GLYPHS = {'¼':1/4,'½':1/2,'¾':3/4,'⅓':1/3,'⅔':2/3,'⅛':1/8,'⅜':3/8,'⅝':5/8,'⅞':7/8};
 function parseQtyToken(t){
   if(!t) return null;
-  const map = {'¼':0.25,'½':0.5,'¾':0.75};
-  if(map[t] != null) return map[t];
-  if(/^\d+\/\d+$/.test(t)){ const [a,b] = t.split('/').map(Number); return b ? a/b : null; }
+  // vulgar-fraction glyphs, alone or as a mixed number ("1½") — fmtQty
+  // prints these, so they must round-trip through recipe edits
+  let m = t.match(/^(\d+)?([¼½¾⅓⅔⅛⅜⅝⅞])$/);
+  if(m) return Number(m[1] || 0) + QTY_GLYPHS[m[2]];
+  m = t.match(/^(?:(\d+)[-+ ]?)?(\d+)\/(\d+)$/); // 1/2, 1-1/2
+  if(m && Number(m[3])) return Number(m[1] || 0) + Number(m[2]) / Number(m[3]);
   const n = parseFloat(t.replace(',', '.'));
   return Number.isFinite(n) ? n : null;
 }
