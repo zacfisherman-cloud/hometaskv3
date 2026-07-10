@@ -1205,7 +1205,10 @@ function renderDates(){
 
   let html = `
     <button class="pick-hero" id="pick-btn"><i data-lucide="dice-5"></i>Gamble Your Date</button>
-    <button class="luck-test" id="test-luck-btn"><i data-lucide="sparkles"></i>Test your luck — practice spin, nothing counts</button>
+    <button class="luck-test" id="test-luck-btn">
+      <span class="lt-ic"><i data-lucide="eye"></i></span>
+      <span class="lt-txt"><span class="lt-t">Test your luck</span><span class="lt-s">Practice spin — nothing counts</span></span>
+    </button>
     <div class="search-wrap-row">
       <div class="search-box">
         <i data-lucide="search"></i>
