@@ -1065,13 +1065,18 @@ function _statsDatesHTML(){
   const daysSince = last ? Math.floor((Date.now() - last) / 86400000) : null;
   const lastTxt = last ? (daysSince === 0 ? 'Today' : daysSince === 1 ? 'Yesterday' : `${daysSince} days ago`) : '—';
 
-  // wheel follow-through: picks (tracked from first spin after this shipped)
-  // that later got marked visited, matched by normalized name
+  // wheel follow-through: superseded picks (re-spun before deciding) are a
+  // deliberate re-roll, not a failure to act — they leave the denominator
+  // entirely and get their own line below.
   const visitedNames = new Set(visited.map(v => normKey(v.name || '')));
-  const followed = wheelLog.filter(w => visitedNames.has(normKey(w.name || ''))).length;
-  const followTxt = wheelLog.length
-    ? `${followed} of ${wheelLog.length} (${Math.round(followed / wheelLog.length * 100)}%)`
-    : 'No spins tracked yet';
+  const statuses = wheelLog.map(w => wheelPickStatus(w, visitedNames));
+  const followed = statuses.filter(x => x === 'visited').length;
+  const pending = statuses.filter(x => x === 'pending').length;
+  const superseded = statuses.filter(x => x === 'superseded').length;
+  const denom = followed + pending;
+  const followTxt = !wheelLog.length ? 'No spins tracked yet'
+    : !denom ? 'No decided spins yet'
+    : `${followed} of ${denom} (${Math.round(followed / denom * 100)}%)`;
 
   let html = `<div style="padding:6px 16px 0"><div class="hist-card">
     ${[
@@ -1080,6 +1085,7 @@ function _statsDatesHTML(){
       ['On the to-visit list', String(toVisit.length)],
       ['Last date night', lastTxt],
       ['Wheel follow-through', followTxt],
+      ['Re-spun before deciding', wheelLog.length ? String(superseded) : '—'],
     ].map(([k, v]) => `
       <div class="h2h-stat"><div class="h2h-stat-mid" style="text-align:left;flex:1">${k}</div>
       <div class="h2h-stat-v" style="width:auto;min-width:52px">${escapeHtml(v)}</div></div>`).join('')}
@@ -1195,6 +1201,7 @@ function renderDates(){
 
   let html = `
     <button class="pick-hero" id="pick-btn"><i data-lucide="dice-5"></i>Gamble Your Date</button>
+    <button class="luck-test" id="test-luck-btn"><i data-lucide="sparkles"></i>Test your luck — practice spin, nothing counts</button>
     <div class="search-wrap-row">
       <div class="search-box">
         <i data-lucide="search"></i>
@@ -1230,6 +1237,10 @@ function renderDates(){
   document.getElementById('pick-btn').onclick = () => {
     if(!toVisit.length){ alert('Add some places to visit first!'); return; }
     openWheelOverlay(toVisit);
+  };
+  document.getElementById('test-luck-btn').onclick = () => {
+    if(!toVisit.length){ alert('Add some places to visit first!'); return; }
+    openWheelOverlay(toVisit, true);
   };
 
   // Venue search
@@ -1405,7 +1416,7 @@ function fireConfetti(){
     setTimeout(()=>el.remove(), 2000);
   }
 }
-function openWheelOverlay(places){
+function openWheelOverlay(places, practice=false){
   document.getElementById('wheel-overlay')?.remove();
   if(!places.length) return;
   const size = Math.min(window.innerWidth-32, 300);
@@ -1413,11 +1424,12 @@ function openWheelOverlay(places){
   ov.id='wheel-overlay';
   ov.innerHTML=`
     <button id="wheel-dismiss-btn">&#x2715;</button>
-    <div class="wh-title">Asking the stars…</div>
+    <div class="wh-title">${practice ? 'Just practicing…' : 'Asking the stars…'}</div>
     <div class="wheel-wrap">
       <div class="wheel-ptr" id="wheel-ptr"></div>
       <canvas id="wcanvas" width="${size}" height="${size}"></canvas>
-    </div>`;
+    </div>
+    <button class="wheel-cancel" id="wheel-cancel-btn">Cancel spin</button>`;
   document.body.appendChild(ov);
 
   const canvas = document.getElementById('wcanvas');
@@ -1545,9 +1557,10 @@ function openWheelOverlay(places){
   // Overshoot past the pointer, then wobble back — a wheel with weight,
   // not a linear spinner. Capped so it can't visually land on a neighbor.
   const OVER = reduceMotion ? 0 : Math.min(seg*0.22, 0.15);
-  const SPIN_MS   = reduceMotion ? 500 : 3400;
+  // 12s of motion overall — long enough to change your mind and cancel.
+  const SPIN_MS   = reduceMotion ? 500 : 10500;
   const WOBBLE_MS = reduceMotion ? 0 : 800;
-  const PULSE_MS  = reduceMotion ? 250 : 750;
+  const PULSE_MS  = reduceMotion ? 250 : 700;
 
   // Pointer flick every time a segment boundary passes underneath.
   let lastIdx = -1, lastFlick = 0;
@@ -1569,8 +1582,10 @@ function openWheelOverlay(places){
 
   function easeOut(t){ return 1-Math.pow(1-t,3.1); }
   let startTime = null;
+  let cancelled = false;
 
   function animate(ts){
+    if(cancelled) return; // cancelled mid-spin: nothing lands, nothing logs
     if(!startTime) startTime = ts;
     const el = ts - startTime;
     if(el <= SPIN_MS){
@@ -1586,8 +1601,11 @@ function openWheelOverlay(places){
       tickPointer(rot, ts);
       requestAnimationFrame(animate);
     } else if(el <= SPIN_MS + WOBBLE_MS + PULSE_MS){
-      // landed: pointer springs once, winning segment pulses violet
-      if(!ptr.classList.contains('land')) ptr.classList.add('land');
+      // landed: pointer springs once, winning segment pulses
+      if(!ptr.classList.contains('land')){
+        ptr.classList.add('land');
+        document.getElementById('wheel-cancel-btn')?.remove(); // too late to cancel
+      }
       const q = (el - SPIN_MS - WOBBLE_MS)/PULSE_MS;
       const glow = Math.abs(Math.sin(Math.PI*2*q)) * (1-q*0.35);
       drawWheel(finalRot, winIdx, Math.max(glow, 0.25));
@@ -1600,13 +1618,40 @@ function openWheelOverlay(places){
   drawWheel(0);
   setTimeout(()=>requestAnimationFrame(animate), 250);
 
-  document.getElementById('wheel-dismiss-btn').onclick=()=>{ ov.remove(); renderDates(); };
+  const cancelSpin = ()=>{ cancelled = true; ov.remove(); renderDates(); };
+  document.getElementById('wheel-dismiss-btn').onclick = cancelSpin;
+  document.getElementById('wheel-cancel-btn').onclick = cancelSpin;
 
   function spinDone(winner){
     fireConfetti();
+    if(practice){
+      // "Test your luck": nothing is logged, nothing is picked, no follow-up.
+      setTimeout(()=>{
+        ov.remove();
+        openModal(`
+          <div class="mbox-icon" style="background:var(--gold-soft)"><i data-lucide="dice-5" style="color:var(--gold)"></i></div>
+          <div class="mbox-title">${escapeHtml(winner.name)}</div>
+          <div class="mbox-sub">…is what it would've landed on. Just practice — nothing was picked or counted.</div>
+          <div class="mbox-btns">
+            <button class="mbox-btn" id="wp-close"><i data-lucide="x"></i>Close</button>
+            <button class="mbox-btn primary-btn" id="wp-real"><i data-lucide="dice-5"></i>Spin for real</button>
+          </div>`,
+        ()=>{
+          document.getElementById('wp-close').onclick = closeModal;
+          document.getElementById('wp-real').onclick = ()=>{ closeModal(); openWheelOverlay(S.dates.toVisit); };
+        });
+      }, 700);
+      return;
+    }
     commitChange(state => {
       state.dates.wheelLog = state.dates.wheelLog || [];
-      state.dates.wheelLog.push({name: winner.name, at: Date.now()});
+      // a re-spin while an earlier pick is still undecided marks it
+      // superseded — "changed our minds", not "never went"
+      const seen = new Set((state.dates.visited || []).map(v => normKey(v.name || '')));
+      state.dates.wheelLog.forEach(w => {
+        if(wheelPickStatus(w, seen) === 'pending') w.status = 'superseded';
+      });
+      state.dates.wheelLog.push({name: winner.name, at: Date.now(), status: 'pending'});
       if(state.dates.wheelLog.length > 300) state.dates.wheelLog = state.dates.wheelLog.slice(-300);
       state.dates.toVisit.forEach(p=>p.picked=false);
       const wi = state.dates.toVisit.findIndex(p=>p.id===winner.id);
@@ -1694,6 +1739,12 @@ function openRateSheet(placeId){
       const newId = uid(), visitedAt = Date.now();
       commitChange(state => {
         const p = state.dates.toVisit.find(p=>p.id===placeId);
+        // follow-through: a pending wheel pick for this place is now honoured
+        (state.dates.wheelLog || []).forEach(w => {
+          if(!w.status || w.status === 'pending'){
+            if(normKey(w.name || '') === normKey((p ? p.name : place.name) || '')) w.status = 'visited';
+          }
+        });
         state.dates.toVisit = state.dates.toVisit.filter(p=>p.id!==placeId);
         state.dates.visited.unshift({
           id:newId, name:p?p.name:place.name, address:p?p.address:place.address,
@@ -2230,6 +2281,12 @@ function recordMealCompletions(state){
     mp.mealLog.push({recipeId: rid, name: r.name, protein: r.protein || '', at: Date.now()});
     mp.loggedIds.push(rid);
   });
+}
+// Wheel-pick lifecycle: 'pending' until either marked visited or superseded
+// by a later REAL spin. Entries from before statuses existed resolve lazily.
+function wheelPickStatus(w, visitedNameSet){
+  if(w.status) return w.status;
+  return visitedNameSet.has(normKey(w.name || '')) ? 'visited' : 'pending';
 }
 function grocerySort(a, b){
   return (a.checked - b.checked) || (a.manual - b.manual) || a.name.localeCompare(b.name);
