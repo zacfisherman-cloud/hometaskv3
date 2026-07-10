@@ -52,8 +52,8 @@
 const FSQ_SEARCH = 'https://places-api.foursquare.com/places/search';
 const FSQ_VERSION = '2025-06-17';
 
-const CAT_DATE_SPOTS = [
-  '4d4b7105d754a06374d81259', // Dining and Drinking (whole group)
+const CAT_FOOD = '4d4b7105d754a06374d81259'; // Dining and Drinking (whole group)
+const CAT_EXPERIENCES = [
   '4bf58dd8d48988d1e2931735', // Art Gallery
   '4bf58dd8d48988d181941735', // Museum
   '4bf58dd8d48988d1f2931735', // Performing Arts Venue
@@ -63,6 +63,13 @@ const CAT_DATE_SPOTS = [
   '4fceea171983d5d06c3e9823', // Aquarium
   '4bf58dd8d48988d17b941735', // Zoo
 ].join(',');
+const CAT_DATE_SPOTS = CAT_FOOD + ',' + CAT_EXPERIENCES;
+// /discover scope selector: food | experiences | both (default)
+function scopeCategories(scope) {
+  if (scope === 'food') return CAT_FOOD;
+  if (scope === 'experiences') return CAT_EXPERIENCES;
+  return CAT_DATE_SPOTS;
+}
 const NOT_A_DATE_SPOT = /memorial|monument|cemeter|stadium|sports/i;
 const FIELDS_CORE = 'fsq_place_id,name,categories,location';
 const FIELDS_PRO  = FIELDS_CORE + ',rating';
@@ -180,12 +187,13 @@ export default {
       // Both orderings are free server-side; the app offers them as
       // "Best rated" vs "Trending now".
       const sort = (url.searchParams.get('sort') || '').toUpperCase() === 'POPULARITY' ? 'POPULARITY' : 'RATING';
+      const cats = scopeCategories(url.searchParams.get('scope'));
       if (!isFinite(lat) || !isFinite(lon)) return jsonError(400, 'lat and lon are required numbers');
       let r;
       try {
         r = await fsqSearchWithRating(env, {
           ll: `${lat},${lon}`, radius: 6000,
-          fsq_category_ids: CAT_DATE_SPOTS, limit, sort,
+          fsq_category_ids: cats, limit, sort,
         });
       } catch (e) { return jsonError(502, `Upstream fetch failed: ${e.message}`); }
       if (!r.ok) return relayError(r);

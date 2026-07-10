@@ -149,6 +149,40 @@ function deepMerge(defaults, source){
 // near-simultaneous edits from different devices each replay their own
 // change on top of the other's, instead of one full-document .set() blindly
 // overwriting whatever the other device just wrote.
+// Replace the panel's content while preserving scroll position and, when
+// possible, the focused input (value, caret and focus). A raw innerHTML
+// rebuild resets all three, which is what made actions mid-scroll or
+// mid-typing feel like a page reload — same family as the Rooms-tab and
+// Tasks-header glitches. switchTab still zeroes scrollTop explicitly for
+// genuine tab changes.
+function setPanelHTML(html){
+  const panel = document.getElementById('panel');
+  const st = panel.scrollTop;
+  const ae = document.activeElement;
+  const focusId = (ae && ae.id && panel.contains(ae)) ? ae.id : null;
+  const val   = focusId && 'value' in ae ? ae.value : null;
+  let caret = null;
+  if(focusId){ try{ caret = ae.selectionStart; }catch(e){} }
+  panel.innerHTML = html;
+  panel.scrollTop = st;
+  if(focusId){
+    const el = document.getElementById(focusId);
+    if(el){
+      if(val != null && 'value' in el && el.value !== val) el.value = val;
+      el.focus({preventScroll:true});
+      try{ if(caret != null && el.setSelectionRange) el.setSelectionRange(caret, caret); }catch(e){}
+    }
+  }
+}
+
+// Order-independent serialization for change detection: Firestore's data()
+// does not guarantee the same key order as the local copy.
+function stableStr(v){
+  if(v === null || typeof v !== 'object') return JSON.stringify(v);
+  if(Array.isArray(v)) return '[' + v.map(stableStr).join(',') + ']';
+  return '{' + Object.keys(v).sort().map(k => JSON.stringify(k) + ':' + stableStr(v[k])).join(',') + '}';
+}
+
 function commitChange(mutate){
   const fallbackBase = JSON.parse(JSON.stringify(S)); // pre-mutation snapshot; only used if no remote doc exists yet
   mutate(S);
@@ -338,7 +372,7 @@ function _renderTasksPanel(){
     </div>`;
     byDate[date].forEach(x=>{ html+=taskCardHTML(x); });
   });
-  document.getElementById('panel').innerHTML = html;
+  setPanelHTML(html);
   lucide.createIcons();
   _bindTabListeners();
   document.querySelectorAll('[data-done]').forEach(btn=>btn.addEventListener('click',e=>{ e.stopPropagation(); completeTask(btn.dataset.done); }));
@@ -348,7 +382,7 @@ function _renderTasksPanel(){
 function _renderHistoryPanel(){
   const log = S.completedLog||[];
   if(!log.length){
-    document.getElementById('panel').innerHTML=`<div class="empty-state"><i data-lucide="history"></i><p>No history yet — complete your first task!</p></div>`;
+    setPanelHTML(`<div class="empty-state"><i data-lucide="history"></i><p>No history yet — complete your first task!</p></div>`);
     lucide.createIcons(); return;
   }
   const byWeek = {};
@@ -373,7 +407,7 @@ function _renderHistoryPanel(){
       <div class="hist-items">${items.map(l=>histItem(l)).join('')}</div>
     </div>`;
   });
-  document.getElementById('panel').innerHTML = html;
+  setPanelHTML(html);
   lucide.createIcons();
 }
 function _renderRoomsPanel(){
@@ -388,7 +422,7 @@ function _renderRoomsPanel(){
     </div>`;
   });
   html += '</div>';
-  document.getElementById('panel').innerHTML = html;
+  setPanelHTML(html);
   lucide.createIcons();
   _bindTabListeners();
   document.querySelectorAll('[data-room-nav]').forEach(tile=>{
@@ -409,7 +443,7 @@ function _renderRoomDetailPanel(roomName){
     if(overdue.length){ html+=`<div class="day-header"><div class="day-label" style="color:var(--red)">Overdue</div></div>`; overdue.forEach(x=>{html+=taskCardHTML(x);}); }
     upcoming.forEach(x=>{html+=taskCardHTML(x);});
   }
-  document.getElementById('panel').innerHTML = html;
+  setPanelHTML(html);
   lucide.createIcons();
   _bindTabListeners();
   document.getElementById('room-back-btn').onclick=()=>{ tasksSubView='rooms'; currentRoomDetail=null; renderTasks(); };
@@ -794,7 +828,7 @@ function renderHistory(){
   else if(statsSubView === 'dates') body = _statsDatesHTML();
   else                              body = _statsTasksHTML();
 
-  document.getElementById('panel').innerHTML = toggle + body;
+  setPanelHTML(toggle + body);
   lucide.createIcons();
   document.getElementById('sv-tasks').onclick = ()=>{ statsSubView='tasks'; renderHistory(); };
   document.getElementById('sv-meals').onclick = ()=>{ statsSubView='meals'; renderHistory(); };
@@ -1169,7 +1203,7 @@ function renderCalendar(){
     </div>`;
   });
 
-  document.getElementById('panel').innerHTML = html;
+  setPanelHTML(html);
   lucide.createIcons();
 }
 
@@ -1181,6 +1215,10 @@ const DEFAULT_BIAS = {lat:-37.8136, lon:144.9631, label:'Melbourne'};
 // on one phone survives app restarts (and shows up on the other phone).
 function getBias(){ return (S.dates && S.dates.searchBias) || DEFAULT_BIAS; }
 function setBias(b){ commitChange(state => { state.dates.searchBias = b; }); }
+// Discover scope ('food' | 'experiences' | 'both') persists in synced state
+// like the bias, so it survives app restarts.
+function getScope(){ return (S.dates && S.dates.discoverScope) || 'both'; }
+function setScope(v){ commitChange(state => { state.dates.discoverScope = v; }); }
 
 // Suburb/postcode → coords through Foursquare's own `near` geocoder
 // (the Worker reads the resolved centre out of the search response), so
@@ -1285,7 +1323,7 @@ function renderDates(){
     visited.forEach(p => { html += visitedCard(p); });
   }
 
-  document.getElementById('panel').innerHTML = html;
+  setPanelHTML(html);
   lucide.createIcons();
 
   // Gamble Your Date — spin wheel
@@ -1344,6 +1382,11 @@ function renderDates(){
   document.querySelectorAll('[data-maps]').forEach(el => el.addEventListener('click', () => {
     window.open('https://maps.google.com/?q='+encodeURIComponent(el.dataset.maps), '_blank');
   }));
+  // Google search links — interim photos/reviews lookup without hosting or
+  // paying for that data (Foursquare photos are Premium-tier)
+  document.querySelectorAll('[data-gsearch]').forEach(el => el.addEventListener('click', () => {
+    window.open('https://www.google.com/search?q='+encodeURIComponent(el.dataset.gsearch), '_blank');
+  }));
 
   const expBtn = document.getElementById('export-btn');
   if(expBtn) expBtn.onclick = exportVisited;
@@ -1363,6 +1406,7 @@ function toVisitCard(p){
     </div>
     <div class="date-actions">
       <button class="date-act visited-act" data-visit-it="${p.id}"><i data-lucide="star"></i>Mark visited</button>
+      <button class="date-act" data-gsearch="${mapsQ}"><i data-lucide="search"></i>Google</button>
       <button class="date-act del-act" data-del-place="${p.id}"><i data-lucide="trash-2"></i>Remove</button>
     </div>
   </div>`;
@@ -1379,11 +1423,13 @@ function visitedCard(p){
         <div class="date-name">${escapeHtml(p.name)}</div>
         ${p.address ? `<div class="date-addr-link" data-maps="${mapsQ}"><i data-lucide="map-pin"></i>${escapeHtml(p.address)}</div>` : ''}
         <div class="date-stars">${stars}</div>
+        ${qualityChipHTML({rating: p.fsqRating ?? null, badge: p.badge}, 'date-quality')}
         ${p.notes ? `<div class="date-notes-text">"${escapeHtml(p.notes)}"</div>` : ''}
         ${p.visitedAt ? `<div class="date-visited-on">Visited ${new Date(p.visitedAt).toLocaleDateString('en-AU',{day:'numeric',month:'short',year:'numeric'})}</div>` : ''}
       </div>
     </div>
     <div class="date-actions">
+      <button class="date-act" data-gsearch="${mapsQ}"><i data-lucide="search"></i>Google</button>
       <button class="date-act del-act" data-del-visited="${p.id}"><i data-lucide="trash-2"></i>Remove</button>
     </div>
   </div>`;
@@ -1469,6 +1515,11 @@ async function openDiscoverDeck(){
         <button class="dv-vbtn" data-dv-view="list" aria-label="Compact list"><i data-lucide="list"></i></button>
       </div>
     </div>
+    <div class="dv-scope">
+      <button class="dv-chip${getScope()==='food'?' sel':''}" data-dv-scope="food">Food &amp; Drink</button>
+      <button class="dv-chip${getScope()==='experiences'?' sel':''}" data-dv-scope="experiences">Experiences</button>
+      <button class="dv-chip${getScope()==='both'?' sel':''}" data-dv-scope="both">Both</button>
+    </div>
     <div id="dv-stage"><div class="dv-msg">Finding spots…</div></div>
     <div class="dv-btns" id="dv-btns" style="display:none">
       <button class="dv-act dv-skip" id="dv-skip" aria-label="Skip"><i data-lucide="x"></i></button>
@@ -1482,14 +1533,15 @@ async function openDiscoverDeck(){
   const stage = document.getElementById('dv-stage');
   let sortMode = 'RATING';   // 'RATING' (Best rated) | 'POPULARITY' (Trending now)
   let view = 'swipe';        // 'swipe' | 'list'
-  const decks = {};          // per-sort cache: sortMode → {cards, idx}
+  const decks = {};          // cache per sort+scope combination: key → {cards, idx}
+  const deckKey = ()=> sortMode + '|' + getScope();
 
   async function loadDeck(){
-    if(decks[sortMode]) return;
+    if(decks[deckKey()]) return;
     stage.innerHTML = '<div class="dv-msg">Finding spots…</div>';
     document.getElementById('dv-btns').style.display = 'none';
     const {lat, lon} = getBias();
-    const res = await fetch(`${DATES_PROXY_URL}/discover?lat=${lat}&lon=${lon}&limit=40&sort=${sortMode}`);
+    const res = await fetch(`${DATES_PROXY_URL}/discover?lat=${lat}&lon=${lon}&limit=40&sort=${sortMode}&scope=${getScope()}`);
     const data = await res.json();
     if(!res.ok) throw new Error(data.error || `Discover failed (${res.status})`);
     // skip anything already on either list, and dedupe within the deck
@@ -1503,7 +1555,7 @@ async function openDiscoverDeck(){
     // slice earns an honest qualitative badge — never an invented number.
     const badge = sortMode === 'POPULARITY' ? 'trending' : 'top-rated';
     cards.slice(0, Math.max(3, Math.ceil(cards.length * 0.2))).forEach(p => { p.badge = badge; });
-    decks[sortMode] = {cards, idx: 0};
+    decks[deckKey()] = {cards, idx: 0};
   }
 
   // Text-forward card: no photo, and no photo-shaped hole either — a small
@@ -1519,6 +1571,7 @@ async function openDiscoverDeck(){
         ${qualityChipHTML(p, 'dv-rating')}
       </div>
       ${p.address ? `<div class="dv-addr"><i data-lucide="map-pin"></i>${escapeHtml(p.address)}</div>` : ''}
+      <button class="dv-gsearch" data-gsearch="${escapeHtml(`${p.name} ${p.address || ''}`.trim())}" aria-label="Search on Google"><i data-lucide="search"></i></button>
     </div>`;
   }
   function rowHTML(p, i){
@@ -1544,7 +1597,7 @@ async function openDiscoverDeck(){
   }
 
   function render(){
-    const d = decks[sortMode];
+    const d = decks[deckKey()];
     if(!d) return; // still loading — loadDeck's caller renders when ready
     stage.classList.toggle('listing', view === 'list');
     if(!d.cards.length){
@@ -1572,7 +1625,11 @@ async function openDiscoverDeck(){
     }
     stage.innerHTML = (d.idx + 1 < d.cards.length ? cardHTML(d.cards[d.idx+1], false) : '') + cardHTML(d.cards[d.idx], true);
     lucide.createIcons();
-    bindSwipe(stage.querySelector('.dv-card.top'), liked => {
+    const topCard = stage.querySelector('.dv-card.top');
+    topCard.querySelector('.dv-gsearch').addEventListener('click', e => {
+      window.open('https://www.google.com/search?q='+encodeURIComponent(e.currentTarget.dataset.gsearch), '_blank');
+    });
+    bindSwipe(topCard, liked => {
       if(liked) addPlace(d.cards[d.idx]);
       d.idx++;
       render();
@@ -1593,6 +1650,9 @@ async function openDiscoverDeck(){
       setTimeout(()=> onDone(liked), 230);
     };
     card.addEventListener('pointerdown', e => {
+      // the Google button must receive its own click — capturing here
+      // would swallow it and start a drag instead
+      if(e.target.closest('.dv-gsearch')) return;
       active = true; sx = e.clientX; sy = e.clientY;
       card.setPointerCapture(e.pointerId);
       card.style.transition = 'none';
@@ -1638,6 +1698,12 @@ async function openDiscoverDeck(){
     view = el.dataset.dvView;
     ov.querySelectorAll('[data-dv-view]').forEach(e => e.classList.toggle('sel', e === el));
     render();
+  }));
+  ov.querySelectorAll('[data-dv-scope]').forEach(el => el.addEventListener('click', ()=>{
+    if(el.dataset.dvScope === getScope()) return;
+    setScope(el.dataset.dvScope); // persisted like the Near bias
+    ov.querySelectorAll('[data-dv-scope]').forEach(e => e.classList.toggle('sel', e === el));
+    loadAndRender();
   }));
   loadAndRender();
 }
@@ -1991,9 +2057,15 @@ function openRateSheet(placeId){
           }
         });
         state.dates.toVisit = state.dates.toVisit.filter(p=>p.id!==placeId);
+        const src = p || place;
         state.dates.visited.unshift({
-          id:newId, name:p?p.name:place.name, address:p?p.address:place.address,
-          category:(p ? p.category : place.category) || '',
+          id:newId, name:src.name, address:src.address,
+          category: src.category || '',
+          fsqId: src.fsqId || null,
+          // rating below is the user's own stars; Foursquare's score and the
+          // quality badge travel under their own names
+          fsqRating: src.rating ?? null,
+          badge: src.badge || null,
           rating, notes, visitedAt
         });
       });
@@ -2036,7 +2108,7 @@ function renderSettings(){
       <div><div class="flat-hdr-title">Settings</div><div class="flat-hdr-sub">${escapeHtml(S.name1)} &amp; ${escapeHtml(S.name2)}</div></div>
       <div class="flat-hdr-icon"><i data-lucide="settings"></i></div>
     </div>`;
-  document.getElementById('panel').innerHTML = `
+  setPanelHTML(`
     <div style="padding-top:14px"></div>
     <div class="settings-card">
       <div class="srow" id="s-edit-names">
@@ -2062,7 +2134,7 @@ function renderSettings(){
         <div class="srow-chev"><i data-lucide="chevron-right"></i></div>
       </div>
     </div>
-    <div style="padding:16px 20px;color:var(--muted);font-size:13px;font-weight:600;text-align:center">Made for ${escapeHtml(S.name1)} &amp; ${escapeHtml(S.name2)} ♥</div>`;
+    <div style="padding:16px 20px;color:var(--muted);font-size:13px;font-weight:600;text-align:center">Made for ${escapeHtml(S.name1)} &amp; ${escapeHtml(S.name2)} ♥</div>`);
   lucide.createIcons();
 
   document.getElementById('s-edit-names').onclick = ()=>{
@@ -2160,7 +2232,7 @@ function renderRooms(){
     </div>`;
   });
   html += '</div>';
-  document.getElementById('panel').innerHTML = html;
+  setPanelHTML(html);
   lucide.createIcons();
   document.querySelectorAll('[data-room-nav]').forEach(tile=>{
     tile.addEventListener('click',()=>renderRoomDetail(tile.dataset.roomNav));
@@ -2183,7 +2255,7 @@ function renderRoomDetail(roomName){
     }
     upcoming.forEach(x=>{html+=taskCardHTML(x);});
   }
-  document.getElementById('panel').innerHTML = html;
+  setPanelHTML(html);
   lucide.createIcons();
   document.getElementById('room-back-btn').onclick=()=>renderRooms();
   document.querySelectorAll('[data-done]').forEach(btn=>btn.addEventListener('click',e=>{
@@ -2321,7 +2393,7 @@ function renderMeals(){
   } else {
     html += _recipesViewHTML(mp);
   }
-  document.getElementById('panel').innerHTML = html;
+  setPanelHTML(html);
   lucide.createIcons();
 
   document.getElementById('mv-recipes').onclick = ()=>{ mealSubView='recipes'; renderMeals(); };
@@ -3333,8 +3405,16 @@ function startHouseholdSync(){
     // redundant re-renders on top of the one the action already did.
     if(snap.metadata.hasPendingWrites) return;
     const remoteHouseholdReady = snap.exists && !!(snap.data() || {}).setup;
+    // When the server confirms exactly what we already rendered (the ack of
+    // our own write arriving a beat later), skip the re-render: that delayed
+    // full rebuild was the main "scroll suddenly jumps seconds after I did
+    // something" bug. A genuinely different payload (partner's edit) still
+    // re-renders below.
+    let unchanged = false;
     if(snap.exists){
-      S = deepMerge(defaultState(), snap.data());
+      const incoming = deepMerge(defaultState(), snap.data());
+      unchanged = stableStr(incoming) === stableStr(S);
+      S = incoming;
       saveLocal();
     } else {
       HOUSEHOLD.set(S);
@@ -3353,7 +3433,7 @@ function startHouseholdSync(){
     if(sessionSetupComplete){
       if(appEl.hidden){
         enterApp();
-      } else {
+      } else if(!unchanged){
         RENDERERS[currentTab]?.();
       }
     }

@@ -723,6 +723,9 @@ button,a,[class$="-tile"],[class$="-row"]{touch-action:manipulation}
 }
 .dv-chip.sel{border-color:var(--sky-deep);background:var(--sky-soft);color:var(--sky-deep)}
 .dv-view{display:flex;gap:6px}
+/* second controls row: scope segmented — three equal chips */
+.dv-scope{display:flex;gap:6px;width:100%;max-width:360px;margin-top:8px}
+.dv-scope .dv-chip{flex:1;padding:0 6px;justify-content:center;display:flex;align-items:center}
 .dv-vbtn{
   width:40px;height:40px;border-radius:12px;border:1px solid var(--line);
   background:transparent;color:var(--muted);
@@ -808,9 +811,16 @@ button,a,[class$="-tile"],[class$="-row"]{touch-action:manipulation}
 }
 .dv-addr{
   display:flex;align-items:flex-start;gap:6px;font-size:13.5px;color:var(--muted);
-  line-height:1.5;margin-top:auto;
+  line-height:1.5;margin-top:auto;padding-right:52px;
 }
 .dv-addr svg{width:14px;height:14px;flex:0 0 14px;margin-top:2px}
+.dv-gsearch{
+  position:absolute;right:16px;bottom:14px;width:42px;height:42px;border-radius:50%;
+  border:1px solid var(--line-strong);background:transparent;color:var(--muted);
+  display:flex;align-items:center;justify-content:center;
+}
+.dv-gsearch svg{width:17px;height:17px}
+.dv-gsearch:active{background:var(--sky-soft);color:var(--sky-deep)}
 .dv-btns{display:flex;gap:26px;margin:20px 0 auto}
 .dv-act{
   width:62px;height:62px;border-radius:50%;display:flex;align-items:center;justify-content:center;
