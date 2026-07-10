@@ -659,7 +659,7 @@ button,a,[class$="-tile"],[class$="-row"]{touch-action:manipulation}
 .star-btn.on svg{color:var(--gold);fill:var(--gold)}
 .modal-notes{
   width:100%;min-height:76px;border:1px solid var(--line);border-radius:var(--r-input);
-  background:var(--sky-tint);padding:12px 16px;font-size:15px;font-weight:400;color:var(--ink);resize:none;margin-bottom:4px;
+  background:var(--sky-tint);padding:12px 16px;font-size:16px;font-weight:400;color:var(--ink);resize:none;margin-bottom:4px;
 }
 .modal-notes::placeholder{color:var(--muted)}
 .modal-notes:focus{border-color:var(--acc-a);box-shadow:0 0 0 3px var(--sky-soft)}
@@ -846,10 +846,43 @@ body.meals .sheet-date-input{color-scheme:light}
 .rv-step b{color:var(--sky-deep);font-weight:650}
 .plain-input{
   width:100%;height:48px;border:1px solid var(--line);border-radius:var(--r-input);
-  background:var(--sky-tint);padding:0 14px;font-weight:500;font-size:15px;color:var(--ink);
+  background:var(--sky-tint);padding:0 14px;font-weight:500;font-size:16px;color:var(--ink);
 }
 .plain-input:focus{border-color:var(--acc-a);box-shadow:0 0 0 3px var(--sky-soft)}
 .pk-chip.newtag{border-style:dashed;font-weight:650}
+
+/* ── recipe form (parse review / edit): sections + line rows ── */
+.frm-sec{display:flex;flex-direction:column;gap:10px}
+.frm-sec .seg-lbl{margin-bottom:0}
+.frm-sec.rule{border-top:1px solid var(--line);padding-top:18px;margin-top:2px}
+.frm-chips{padding:0}
+.ln-rows{display:flex;flex-direction:column;gap:8px}
+.ln-row{display:flex;align-items:flex-start;gap:8px}
+.ln-num{
+  flex:0 0 24px;height:48px;display:flex;align-items:center;justify-content:center;
+  font-weight:650;font-size:13.5px;color:var(--sky-deep);
+}
+.ln-input{
+  flex:1;min-height:48px;border:1px solid var(--line);border-radius:var(--r-input);
+  background:var(--sky-tint);padding:12px 14px;font-size:16px;font-weight:450;
+  color:var(--ink);resize:none;line-height:1.45;overflow:hidden;
+}
+.ln-input::placeholder{color:var(--muted)}
+.ln-input:focus{border-color:var(--acc-a);box-shadow:0 0 0 3px var(--sky-soft);outline:none}
+.ln-del{
+  flex:0 0 44px;width:44px;height:48px;border-radius:var(--r-input);
+  border:1px solid var(--line);color:var(--muted);
+  display:flex;align-items:center;justify-content:center;
+}
+.ln-del:active{border-color:var(--red);color:var(--red);background:var(--red-soft)}
+.ln-del svg{width:16px;height:16px}
+.ln-add{
+  min-height:48px;width:100%;border:1.5px dashed var(--line-strong);border-radius:var(--r-input);
+  color:var(--sky-deep);font-weight:600;font-size:14px;background:transparent;
+  display:flex;align-items:center;justify-content:center;gap:7px;
+}
+.ln-add:active{background:var(--sky-soft)}
+.ln-add svg{width:16px;height:16px}
 
 /* ── Meals: grocery list (stage 5) ───────────────────────────── */
 .g-item{

@@ -2758,6 +2758,19 @@ function openParseReviewSheet(recipe, via){
     `<button class="pk-chip${normalizeProtein(p)===normalizeProtein(selProtein)?' on':''}" data-pr-protein="${escapeHtml(p)}">${escapeHtml(p)}</button>`
   ).join('') + (parsedIsNew ? `<button class="pk-chip on newtag" data-pr-protein="${escapeHtml(selProtein)}">${escapeHtml(selProtein)} · new</button>` : '');
 
+  // Ingredients and steps edit as one row per line (like a shopping list),
+  // not a raw text blob — add/remove/edit a single line without touching
+  // the rest. Rows parse back through parseIngredientLine on save.
+  const lnRowHTML = (val, kind, n) => `<div class="ln-row">
+      ${kind==='step' ? `<span class="ln-num">${n}</span>` : ''}
+      <textarea class="ln-input" rows="1" placeholder="${kind==='step' ? 'Describe this step…' : 'e.g. 200 g chicken'}">${escapeHtml(val)}</textarea>
+      <button class="ln-del" aria-label="Remove line"><i data-lucide="x"></i></button>
+    </div>`;
+  const ingVals  = (recipe.ingredients||[]).map(fmtIngredient);
+  const stepVals = (recipe.steps||[]).slice();
+  if(!ingVals.length)  ingVals.push('');
+  if(!stepVals.length) stepVals.push('');
+
   openSheet(`
     <div class="grabber"></div>
     <div class="sheet-head">
@@ -2765,29 +2778,63 @@ function openParseReviewSheet(recipe, via){
       <button class="sheet-close" id="sh-close"><i data-lucide="x"></i></button>
     </div>
     ${via==='heuristic' ? '<div class="rc-none err" style="margin:0">The AI parse failed, so this is a rough text-scan — double-check every field.</div>' : ''}
-    <div class="seg-lbl" style="margin-bottom:6px">Title</div>
-    <input class="plain-input" id="pr-name" value="${escapeHtml(recipe.name||'')}">
-    <div class="seg-lbl" style="margin-bottom:6px">Protein tag ${parsedIsNew ? '<span style="color:var(--sky-deep);text-transform:none;letter-spacing:0"> — new tag: joins the picker when you save</span>' : ''}</div>
-    <div class="pk-row" style="padding:0" id="pr-proteins">${chipRow}</div>
-    <input class="plain-input" id="pr-protein-custom" placeholder="Or type a different tag…" style="margin-top:2px">
-    <div class="seg-lbl" style="margin-bottom:6px">Prep styles <span style="text-transform:none;letter-spacing:0">(optional)</span></div>
-    <div class="pk-row" style="padding:0">
-      ${MEAL_STYLES.map(s => `<button class="pk-chip${selStyles.includes(s.id)?' on':''}" data-pr-style="${s.id}">${s.name}</button>`).join('')}
+    <div class="frm-sec">
+      <div class="seg-lbl">Title</div>
+      <input class="plain-input" id="pr-name" value="${escapeHtml(recipe.name||'')}">
+    </div>
+    <div class="frm-sec">
+      <div class="seg-lbl">Protein tag ${parsedIsNew ? '<span style="color:var(--sky-deep);text-transform:none;letter-spacing:0"> — new tag: joins the picker when you save</span>' : ''}</div>
+      <div class="pk-row frm-chips" id="pr-proteins">${chipRow}</div>
+      <input class="plain-input" id="pr-protein-custom" placeholder="Or type a different tag…">
+    </div>
+    <div class="frm-sec">
+      <div class="seg-lbl">Prep styles <span style="text-transform:none;letter-spacing:0">(optional)</span></div>
+      <div class="pk-row frm-chips">
+        ${MEAL_STYLES.map(s => `<button class="pk-chip${selStyles.includes(s.id)?' on':''}" data-pr-style="${s.id}">${s.name}</button>`).join('')}
+      </div>
     </div>
     <div style="display:flex;gap:10px">
-      <div style="flex:1"><div class="seg-lbl" style="margin-bottom:6px">Serves</div>
+      <div style="flex:1"><div class="seg-lbl" style="margin-bottom:8px">Serves</div>
         <input class="plain-input" id="pr-serves" type="number" min="1" max="24" value="${recipe.serves ?? ''}"></div>
-      <div style="flex:1"><div class="seg-lbl" style="margin-bottom:6px">Minutes</div>
+      <div style="flex:1"><div class="seg-lbl" style="margin-bottom:8px">Minutes</div>
         <input class="plain-input" id="pr-minutes" type="number" min="1" max="1440" value="${recipe.minutes ?? ''}"></div>
     </div>
-    <div class="seg-lbl" style="margin-bottom:6px">Ingredients <span style="text-transform:none;letter-spacing:0">— one per line: qty unit item</span></div>
-    <textarea class="modal-notes" id="pr-ing" style="min-height:120px">${escapeHtml((recipe.ingredients||[]).map(fmtIngredient).join('\n'))}</textarea>
-    <div class="seg-lbl" style="margin-bottom:6px">Steps <span style="text-transform:none;letter-spacing:0">— one per line</span></div>
-    <textarea class="modal-notes" id="pr-steps" style="min-height:120px">${escapeHtml((recipe.steps||[]).join('\n'))}</textarea>
+    <div class="frm-sec rule">
+      <div class="seg-lbl">Ingredients <span style="text-transform:none;letter-spacing:0">— amount, then the item</span></div>
+      <div class="ln-rows" id="pr-ing-rows">${ingVals.map(v => lnRowHTML(v, 'ing')).join('')}</div>
+      <button class="ln-add" id="pr-ing-add"><i data-lucide="plus"></i>Add ingredient</button>
+    </div>
+    <div class="frm-sec rule">
+      <div class="seg-lbl">Steps</div>
+      <div class="ln-rows" id="pr-step-rows">${stepVals.map((v,i) => lnRowHTML(v, 'step', i+1)).join('')}</div>
+      <button class="ln-add" id="pr-step-add"><i data-lucide="plus"></i>Add step</button>
+    </div>
     <div class="rc-none err" id="pr-err" style="display:none;margin:0"></div>
     <button class="btn-primary" id="pr-save"><i data-lucide="check"></i>${isEdit ? 'Save changes' : 'Save recipe'}</button>`,
   ()=>{
     document.getElementById('sh-close').onclick = closeSheet;
+    // Line-row plumbing: auto-grow textareas, per-row delete, append-and-focus
+    function bindLines(wrapId, addId, kind){
+      const wrap = document.getElementById(wrapId);
+      const renum = ()=> wrap.querySelectorAll('.ln-num').forEach((n,i)=> n.textContent = i+1);
+      const grow = t => { t.style.height='auto'; t.style.height = t.scrollHeight+'px'; };
+      const bindRow = row => {
+        const t = row.querySelector('.ln-input');
+        t.addEventListener('input', ()=> grow(t));
+        grow(t);
+        row.querySelector('.ln-del').onclick = ()=>{ row.remove(); renum(); };
+      };
+      wrap.querySelectorAll('.ln-row').forEach(bindRow);
+      document.getElementById(addId).onclick = ()=>{
+        wrap.insertAdjacentHTML('beforeend', lnRowHTML('', kind, wrap.children.length+1));
+        const row = wrap.lastElementChild;
+        bindRow(row);
+        lucide.createIcons();
+        row.querySelector('.ln-input').focus();
+      };
+    }
+    bindLines('pr-ing-rows', 'pr-ing-add', 'ing');
+    bindLines('pr-step-rows', 'pr-step-add', 'step');
     const customInput = document.getElementById('pr-protein-custom');
     document.querySelectorAll('[data-pr-protein]').forEach(el => el.addEventListener('click', ()=>{
       selProtein = el.dataset.prProtein;
@@ -2816,8 +2863,10 @@ function openParseReviewSheet(recipe, via){
       if(!chosen){ customInput.focus(); return; }
       // If an edited/custom tag normalizes onto an existing option, snap to it
       const match = proteinOptions().find(p => normalizeProtein(p) === normalizeProtein(chosen));
-      const ingredients = document.getElementById('pr-ing').value.split('\n').map(parseIngredientLine).filter(Boolean);
-      const steps = document.getElementById('pr-steps').value.split('\n').map(s => s.replace(/^\d+[.)]\s*/, '').trim()).filter(Boolean);
+      const ingredients = [...document.querySelectorAll('#pr-ing-rows .ln-input')]
+        .map(t => parseIngredientLine(t.value)).filter(Boolean);
+      const steps = [...document.querySelectorAll('#pr-step-rows .ln-input')]
+        .map(t => t.value.replace(/^\d+[.)]\s*/, '').trim()).filter(Boolean);
       const saveBtn = document.getElementById('pr-save');
       saveBtn.disabled = true; saveBtn.textContent = 'Saving…';
       const doc = {
