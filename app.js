@@ -2726,12 +2726,19 @@ function renderSettings(){
         <input id="s-n1" type="text" value="${escapeHtml(S.name1)}" placeholder="Your name"></div>
       <div class="sheet-field"><i data-lucide="users" class="ic"></i>
         <input id="s-n2" type="text" value="${escapeHtml(S.name2)}" placeholder="Partner's name"></div>
+      <div class="sheet-field"><i data-lucide="mail" class="ic"></i>
+        <input id="s-e1" type="email" value="${escapeHtml(S.email1||'')}" placeholder="${escapeHtml(S.name1)}'s email"></div>
+      <div class="sheet-field"><i data-lucide="mail" class="ic"></i>
+        <input id="s-e2" type="email" value="${escapeHtml(S.email2||'')}" placeholder="${escapeHtml(S.name2)}'s email"></div>
+      <p class="setup-opt-note" style="margin-top:-4px">Emails receive the 7:30am task digest &amp; calendar links</p>
       <button class="btn-primary" id="save-names"><i data-lucide="check"></i>Save</button>`,
     ()=>{
       document.getElementById('sh-close').onclick = closeSheet;
       document.getElementById('save-names').onclick = ()=>{
         const n1=document.getElementById('s-n1').value.trim();
         const n2=document.getElementById('s-n2').value.trim();
+        const e1=document.getElementById('s-e1').value.trim();
+        const e2=document.getElementById('s-e2').value.trim();
         commitChange(state => {
           // Renaming a partner would otherwise orphan every task/history
           // entry already assigned to their old name — migrate those values
@@ -2746,6 +2753,8 @@ function renderSettings(){
           }
           if(changed1) state.name1 = n1;
           if(changed2) state.name2 = n2;
+          state.email1 = e1;
+          state.email2 = e2;
         });
         closeSheet(); renderSettings();
       };

@@ -1,0 +1,14 @@
+# Daily task-digest email worker. Both crons fire; the worker only acts when
+# it's 7:3x am in Australia/Melbourne (20:30 UTC in AEDT, 21:30 UTC in AEST).
+name = "task-digest-worker"
+main = "worker.js"
+compatibility_date = "2025-01-01"
+
+[triggers]
+crons = ["30 20 * * *", "30 21 * * *"]
+
+# Secrets (never in source control):
+#   BREVO_API_KEY — npx wrangler secret put BREVO_API_KEY
+#     (free brevo.com account; verify the sender address in their dashboard)
+#   RUN_TOKEN     — npx wrangler secret put RUN_TOKEN
+#     (any random string; gates the manual /run test endpoint)
