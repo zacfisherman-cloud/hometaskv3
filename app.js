@@ -443,12 +443,17 @@ function _renderTasksPanel(){
     </div>`;
     overdue.forEach(x=>{ html+=taskCardHTML(x); });
   }
-  const dates = Object.keys(byDate).sort();
-  if(!dates.length&&!overdue.length){
+  // Per-day groups only for the coming week; everything beyond collapses
+  // into "Later this month" / month-name groups so a sparse monthly task
+  // three weeks out doesn't add a wall of one-card day sections.
+  const horizon = addDays(t, 7);
+  const dates = Object.keys(byDate).sort().filter(d => d < horizon);
+  const far = upcoming.filter(x => x.dueDate >= horizon);
+  if(!upcoming.length && !overdue.length){
     html += `<div class="empty-state"><i data-lucide="check-circle-2"></i><p>All clear! Tap + to add tasks.</p></div>`;
   }
   // One-time swipe hint: shown until the first successful swipe (or tap).
-  if((overdue.length || dates.length) && !showTaskButtons() && lsGet('ht-swipe-hint')!=='done'){
+  if((overdue.length || upcoming.length) && !showTaskButtons() && lsGet('ht-swipe-hint')!=='done'){
     html += `<div class="swipe-hint" id="swipe-hint"><i data-lucide="move-horizontal"></i>Swipe a task right to complete, left to skip</div>`;
   }
   dates.forEach(date=>{
@@ -459,6 +464,30 @@ function _renderTasksPanel(){
     </div>`;
     byDate[date].forEach(x=>{ html+=taskCardHTML(x); });
   });
+  if(far.length){
+    const nowMonth = t.slice(0,7), nowYear = t.slice(0,4);
+    const groups = [];
+    far.forEach(x=>{
+      const m = x.dueDate.slice(0,7);
+      const key = m === nowMonth ? 'later' : m;
+      let g = groups[groups.length-1];
+      if(!g || g.key !== key){
+        const d = new Date(x.dueDate+'T00:00:00');
+        const label = key === 'later' ? 'Later this month'
+          : new Intl.DateTimeFormat('en-AU',{month:'long'}).format(d) + (x.dueDate.slice(0,4)!==nowYear ? ' '+x.dueDate.slice(0,4) : '');
+        g = {key, label, items:[]};
+        groups.push(g);
+      }
+      g.items.push(x);
+    });
+    groups.forEach(g=>{
+      html += `<div class="day-header">
+        <div class="day-label" style="color:var(--muted)">${g.label}</div>
+        <div class="day-date-pill">${g.items.length} task${g.items.length>1?'s':''}</div>
+      </div>`;
+      g.items.forEach(x=>{ html+=taskCardHTML(x); });
+    });
+  }
   setPanelHTML(html);
   lucide.createIcons();
   _bindTabListeners();
