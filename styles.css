@@ -663,6 +663,7 @@ button,a,[class$="-tile"],[class$="-row"]{touch-action:manipulation}
 .room-tile-name{font-weight:550;font-size:14px;color:var(--ink);line-height:1.25}
 .room-badge{position:absolute;top:12px;right:12px;background:var(--sky-soft);color:var(--sky-deep);border-radius:var(--r-pill);padding:2px 9px;font-size:11px;font-weight:600;min-width:20px;text-align:center;font-variant-numeric:tabular-nums}
 .room-badge.zero{background:transparent;border:1px solid var(--line);color:var(--muted)}
+.room-dot{position:absolute;top:-3px;right:-3px;width:9px;height:9px;border-radius:50%;background:var(--red);border:1.5px solid var(--card)}
 .room-back{
   display:flex;align-items:center;gap:8px;padding:16px 20px 8px;min-height:44px;
   font-weight:600;font-size:15px;color:var(--sky-deep);width:100%;text-align:left;

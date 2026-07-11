@@ -107,7 +107,9 @@ function taskIcon(task){
   if(/laundry|wash|sheet|linen/i.test(n))         return 'washing-machine';
   if(/bin|rubbish|trash|shop|errand|buy/i.test(n))return 'shopping-bag';
   if(/garden|mow|lawn|outdoor/i.test(n))          return 'sun';
-  return 'list-checks';
+  // no name match — the task's room already has a meaningful icon
+  const room = ROOM_CHIPS.find(r => r.name === task.room);
+  return room ? room.icon : 'list-checks';
 }
 
 function gcalLink(task){
@@ -360,7 +362,7 @@ function renderTasks(){
           </div>
           <div class="hh-avatar">${escapeHtml((myName()||'?')[0].toUpperCase())}</div>
         </div>
-        <div class="hero-ring">${ringHTML(prog.pct)}<div class="ring-in"><b>${prog.pct}</b><span>% this week</span></div></div>
+        <div class="hero-ring">${ringHTML(prog.pct)}<div class="ring-in"><b>${prog.pct}</b><span>% together</span></div></div>
         <div class="hero-sub"><b>${prog.done} of ${prog.total}</b> · ${weekLabel(getWeekStart())}</div>
       </div>`;
     // Re-apply collapsed state without transition after the header DOM is rebuilt
@@ -613,10 +615,15 @@ function applyRestore(logId){
 function _renderRoomsPanel(){
   let html = _tabsRowHTML('rooms');
   html += '<div class="room-grid">';
+  // Badge counts what needs doing NOW (due this week, incl. overdue) rather
+  // than every task ever scheduled; a red dot flags rooms with overdue work.
+  const today = todayStr(), weekEnd = addDays(getWeekStart(), 6);
   ROOM_CHIPS.forEach(room=>{
-    const count = S.tasks.filter(t=>t.room===room.name).length;
+    const roomTasks = S.tasks.filter(t=>t.room===room.name);
+    const count = roomTasks.filter(t=>t.dueDate <= weekEnd).length;
+    const hasOverdue = roomTasks.some(t=>t.dueDate < today);
     html += `<div class="room-tile" data-room-nav="${room.name}">
-      <div class="room-badge ${count===0?'zero':''}">${count}</div>
+      <div class="room-badge ${count===0?'zero':''}">${count}${hasOverdue?'<span class="room-dot"></span>':''}</div>
       <div class="room-tile-icon"><i data-lucide="${room.icon}"></i></div>
       <div class="room-tile-name">${room.name}</div>
     </div>`;
@@ -675,7 +682,6 @@ function lastDoneText(taskId){
 function taskCardHTML(task){
   const diff  = task.difficulty || 'Easy';
   const cls   = {Easy:'easy', Medium:'medium', Hard:'hard'}[diff] || 'easy';
-  const diffCls = {Easy:'ez', Medium:'md', Hard:'hd'}[diff] || 'ez';
   const due   = dueDateDisplay(task.dueDate);
 
   return `<div class="task-card ${cls}" data-task-card="${task.id}">
@@ -689,7 +695,6 @@ function taskCardHTML(task){
           <div class="tc-badges">
             <span class="badge badge-who"><i data-lucide="${task.assignee==='Both'?'users':'user'}"></i>${escapeHtml(taskTurnText(task))}</span>
             <span class="badge badge-freq">${freqLabel(task)}</span>
-            <span class="badge badge-diff ${diffCls}">${diff}</span>
             ${task.isDeepClean ? '<span class="badge badge-dc"><i data-lucide="sparkles"></i>Deep clean</span>' : ''}
           </div>
           <div class="tc-due ${due.cls}">
