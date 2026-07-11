@@ -749,12 +749,24 @@ function skipTask(id){
 }
 
 /* ── Add task sheet ──────────────────────────────── */
+// Last-used add-sheet selections (per-device): adding a routine task should
+// only need a name, not six re-answered questions.
+function loadAddDefaults(){
+  try{ return JSON.parse(lsGet('ht-add-defaults')||'{}') || {}; }catch(e){ return {}; }
+}
 function openAddTaskSheet(){
-  let selWho  = myName();
-  let selFreq = 'weekly';
-  let selDiff = 'Easy';
+  const d = loadAddDefaults();
+  let selWho  = [S.name1, S.name2, 'Both'].includes(d.assignee) ? d.assignee : myName();
+  let selFreq = ['daily','weekly','fortnightly','monthly','custom'].includes(d.frequency) ? d.frequency : 'weekly';
+  let selDiff = ['Easy','Medium','Hard'].includes(d.difficulty) ? d.difficulty : 'Easy';
   let isDeepClean = false;
-  let selRoom = '';
+  let selRoom = ROOM_CHIPS.some(r=>r.name===d.room) ? d.room : '';
+  const defCustomDays = parseInt(d.customDays) || 3;
+  const diffSelStyle = {
+    Easy:  'color:var(--green);border-color:var(--green);background:var(--green-soft)',
+    Medium:'color:var(--gold);border-color:var(--gold);background:var(--gold-soft)',
+    Hard:  'color:var(--red);border-color:var(--red);background:var(--red-soft)',
+  };
 
   openSheet(`
     <div class="grabber"></div>
@@ -777,15 +789,15 @@ function openAddTaskSheet(){
     <div>
       <div class="seg-lbl">Frequency</div>
       <div class="chip-grid" id="freq-chips">
-        <div class="chip" data-freq="daily">Daily</div>
-        <div class="chip sel" data-freq="weekly">Weekly</div>
-        <div class="chip" data-freq="fortnightly">Fortnightly</div>
-        <div class="chip" data-freq="monthly">Monthly</div>
-        <div class="chip" data-freq="custom">Every X days</div>
+        <div class="chip ${selFreq==='daily'?'sel':''}" data-freq="daily">Daily</div>
+        <div class="chip ${selFreq==='weekly'?'sel':''}" data-freq="weekly">Weekly</div>
+        <div class="chip ${selFreq==='fortnightly'?'sel':''}" data-freq="fortnightly">Fortnightly</div>
+        <div class="chip ${selFreq==='monthly'?'sel':''}" data-freq="monthly">Monthly</div>
+        <div class="chip ${selFreq==='custom'?'sel':''}" data-freq="custom">Every X days</div>
       </div>
-      <div id="custom-days-row" class="x-days-row" style="display:none;margin-top:10px">
+      <div id="custom-days-row" class="x-days-row" style="display:${selFreq==='custom'?'flex':'none'};margin-top:10px">
         <span>Every</span>
-        <input class="x-days-input" id="nt-custom-days" type="number" value="3" min="1" max="365">
+        <input class="x-days-input" id="nt-custom-days" type="number" value="${defCustomDays}" min="1" max="365">
         <span>days</span>
       </div>
     </div>
@@ -796,9 +808,9 @@ function openAddTaskSheet(){
     <div>
       <div class="seg-lbl">Difficulty</div>
       <div class="chips">
-        <div class="chip sel" data-diff="Easy" style="color:var(--green);border-color:var(--green);background:var(--green-soft)">Easy</div>
-        <div class="chip" data-diff="Medium">Medium</div>
-        <div class="chip" data-diff="Hard">Hard</div>
+        <div class="chip ${selDiff==='Easy'?'sel':''}" data-diff="Easy" style="${selDiff==='Easy'?diffSelStyle.Easy:''}">Easy</div>
+        <div class="chip ${selDiff==='Medium'?'sel':''}" data-diff="Medium" style="${selDiff==='Medium'?diffSelStyle.Medium:''}">Medium</div>
+        <div class="chip ${selDiff==='Hard'?'sel':''}" data-diff="Hard" style="${selDiff==='Hard'?diffSelStyle.Hard:''}">Hard</div>
       </div>
     </div>
     <div class="toggle-row">
@@ -814,7 +826,7 @@ function openAddTaskSheet(){
     <div>
       <div class="seg-lbl">Room / Area</div>
       <div class="chip-grid" id="room-chips" style="grid-template-columns:repeat(3,1fr);gap:7px">
-        ${ROOM_CHIPS.map(r=>`<div class="chip chip-sm" data-room="${r.name}"><i data-lucide="${r.icon}"></i>&nbsp;${r.name}</div>`).join('')}
+        ${ROOM_CHIPS.map(r=>`<div class="chip chip-sm ${selRoom===r.name?'sel':''}" data-room="${r.name}"><i data-lucide="${r.icon}"></i>&nbsp;${r.name}</div>`).join('')}
       </div>
     </div>
     <button class="btn-primary" id="create-task-btn">Add task <i data-lucide="check"></i></button>`,
@@ -874,6 +886,8 @@ function openAddTaskSheet(){
           dueDate:startDate, difficulty:selDiff, isDeepClean, room:selRoom
         });
       });
+      // Remember these selections as next time's starting point.
+      lsSet('ht-add-defaults', JSON.stringify({assignee:selWho, frequency:selFreq, customDays, difficulty:selDiff, room:selRoom}));
       closeSheet(); renderTasks();
     };
   });
