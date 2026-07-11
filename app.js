@@ -516,6 +516,11 @@ function restoreCompletion(logId){
     msg = `Restore "${entry.name}"? It goes back to the pending list, due ${shortDateStr(revertTo)}.`;
   }
   if(!confirm(msg)) return;
+  applyRestore(logId);
+}
+
+// The confirm-free core of Restore — also the post-Done Undo toast's action.
+function applyRestore(logId){
   commitChange(state => {
     const li = (state.completedLog||[]).findIndex(l=>l.id===logId);
     if(li < 0) return;
@@ -602,8 +607,36 @@ function taskCardHTML(task){
   </div>`;
 }
 
+/* ── toast (single instance, auto-dismiss) ───────── */
+let toastTimer = null;
+function hideToast(){
+  clearTimeout(toastTimer); toastTimer = null;
+  document.getElementById('toast')?.classList.remove('show');
+}
+function showToast(msg, actionLabel, onAction){
+  let el = document.getElementById('toast');
+  if(!el){
+    el = document.createElement('div'); el.id = 'toast';
+    document.getElementById('app').appendChild(el);
+  }
+  clearTimeout(toastTimer);
+  el.innerHTML = `<div class="toast-ic"><i data-lucide="check"></i></div>
+    <div class="toast-msg"></div>
+    ${actionLabel ? '<button class="toast-act" id="toast-act"></button>' : ''}`;
+  el.querySelector('.toast-msg').textContent = msg;
+  if(actionLabel){
+    const b = el.querySelector('#toast-act');
+    b.textContent = actionLabel;
+    b.onclick = ()=>{ hideToast(); onAction && onAction(); };
+  }
+  lucide.createIcons();
+  el.classList.add('show');
+  toastTimer = setTimeout(hideToast, 5000);
+}
+
 function completeTask(id){
-  if(!S.tasks.find(t=>t.id===id)) return;
+  const t = S.tasks.find(x=>x.id===id); if(!t) return;
+  const taskName = t.name;
   const logId = uid(), completedAt = todayStr();
   commitChange(state => {
     const task = state.tasks.find(t=>t.id===id); if(!task) return;
@@ -617,6 +650,8 @@ function completeTask(id){
     task.dueDate = addDays(task.dueDate, getFreqDays(task));
   });
   renderTasks();
+  // Fat-finger escape hatch: same revert as the history Restore, no confirm.
+  showToast(`${taskName} done`, 'Undo', ()=>applyRestore(logId));
 }
 function skipTask(id){
   if(!S.tasks.find(t=>t.id===id)) return;
