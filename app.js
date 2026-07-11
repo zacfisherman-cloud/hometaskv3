@@ -134,7 +134,7 @@ function loadLocal(){
   return null;
 }
 function save(){ HOUSEHOLD.set(S); saveLocal(); }
-function defaultState(){ return {name1:'Zac',name2:'Ella',setup:false,tasks:makeDefaultTasks(),completedLog:[],dates:{toVisit:[],visited:[],wheelLog:[]},email1:'',email2:'',
+function defaultState(){ return {name1:'Zac',name2:'Ella',setup:false,tasks:makeDefaultTasks(),completedLog:[],dates:{toVisit:[],visited:[],wheelLog:[],discoverSkips:[],discoverVetoes:[]},email1:'',email2:'',
   // Meal Prep week state — small + hot, so it lives in the main doc alongside
   // everything else. Saved recipes themselves go in a subcollection (stage 3+).
   mealPrep:{style:null, proteins:[], activeRecipeIds:[], grocery:[], dismissed:[], mealLog:[], loggedIds:[]}}; }
@@ -1551,6 +1551,40 @@ function qualityChipHTML(p, cls){
   if(p.badge && BADGE_LABELS[p.badge]) return `<span class="${cls}">★ ${BADGE_LABELS[p.badge]}</span>`;
   return '';
 }
+/* ── Discover skip / veto (household-wide, synced via Firestore) ──
+   A swiped-away place shouldn't come straight back on the next Discover —
+   for either partner. Skips carry a timestamp and expire after 10 days;
+   vetoes are permanent until un-vetoed in Settings. Keyed by fsqId with a
+   normalized-name fallback for anything without one. */
+const SKIP_COOLDOWN_MS = 10 * 24 * 60 * 60 * 1000;
+function spotKey(p){ return p.fsqId || normKey(p.name || ''); }
+function recordDiscoverSkip(p){
+  const key = spotKey(p); if(!key) return;
+  const ts = Date.now();
+  commitChange(state => {
+    let arr = state.dates.discoverSkips = state.dates.discoverSkips || [];
+    const ex = arr.find(s => s.key === key);
+    if(ex) ex.ts = ts; else arr.push({key, name: p.name || '', ts});
+    // prune expired entries so the list can't grow without bound
+    state.dates.discoverSkips = arr.filter(s => ts - s.ts < SKIP_COOLDOWN_MS);
+  });
+}
+function recordDiscoverVeto(p){
+  const key = spotKey(p); if(!key) return;
+  commitChange(state => {
+    const arr = state.dates.discoverVetoes = state.dates.discoverVetoes || [];
+    if(!arr.some(v => v.key === key)) arr.push({key, name: p.name || '', category: p.category || '', ts: Date.now()});
+    // a veto supersedes any cooldown entry for the same place
+    state.dates.discoverSkips = (state.dates.discoverSkips || []).filter(s => s.key !== key);
+  });
+}
+function discoverSuppressed(p){
+  const key = spotKey(p); if(!key) return false;
+  if((S.dates.discoverVetoes || []).some(v => v.key === key)) return true;
+  const s = (S.dates.discoverSkips || []).find(x => x.key === key);
+  return !!s && (Date.now() - s.ts) < SKIP_COOLDOWN_MS;
+}
+
 function dateSpotIcon(cat){
   const c = (cat || '').toLowerCase();
   if(/museum|gallery|art|exhibit|historic|monument|memorial|castle|landmark/.test(c)) return 'landmark';
@@ -1809,7 +1843,8 @@ async function openDiscoverDeck(){
     </div>
     <div id="dv-stage"><div class="dv-msg">Finding spots…</div></div>
     <div class="dv-btns" id="dv-btns" style="display:none">
-      <button class="dv-act dv-skip" id="dv-skip" aria-label="Skip"><i data-lucide="x"></i></button>
+      <button class="dv-act dv-skip" id="dv-skip" aria-label="Skip for now"><i data-lucide="x"></i></button>
+      <button class="dv-act dv-never" id="dv-never" aria-label="Never show again"><i data-lucide="ban"></i></button>
       <button class="dv-act dv-add" id="dv-add" aria-label="Add to list"><i data-lucide="heart"></i></button>
     </div>`;
   document.body.appendChild(ov);
@@ -1831,10 +1866,11 @@ async function openDiscoverDeck(){
     const res = await fetch(`${DATES_PROXY_URL}/discover?lat=${lat}&lon=${lon}&limit=40&sort=${sortMode}&scope=${getScope()}`);
     const data = await res.json();
     if(!res.ok) throw new Error(data.error || `Discover failed (${res.status})`);
-    // skip anything already on either list, and dedupe within the deck
+    // skip anything already on either list, anything skipped in the last 10
+    // days or vetoed (by either partner — synced state), and dedupe in-deck
     const knownList = [...S.dates.toVisit, ...S.dates.visited];
     const cards = (data.results || []).map(normFsqPlace)
-      .filter(p => p.name && !dateSpotKnown(p, knownList))
+      .filter(p => p.name && !dateSpotKnown(p, knownList) && !discoverSuppressed(p))
       .filter((p, i, arr) => arr.findIndex(x =>
         (x.fsqId && p.fsqId) ? x.fsqId === p.fsqId : normKey(x.name) === normKey(p.name)) === i);
     // The response order IS Foursquare's real rating/popularity ranking
@@ -1916,25 +1952,29 @@ async function openDiscoverDeck(){
     topCard.querySelector('.dv-gsearch').addEventListener('click', e => {
       window.open('https://www.google.com/search?q='+encodeURIComponent(e.currentTarget.dataset.gsearch), '_blank');
     });
-    bindSwipe(topCard, liked => {
-      if(liked) addPlace(d.cards[d.idx]);
+    bindSwipe(topCard, (liked, veto) => {
+      const p = d.cards[d.idx];
+      if(liked) addPlace(p);
+      else if(veto) recordDiscoverVeto(p);
+      else recordDiscoverSkip(p);
       d.idx++;
       render();
     });
   }
   // Swipe right = add, left = skip; buttons fling the card the same way.
+  // The ban button flings left too, but records a permanent veto.
   function bindSwipe(card, onDone){
     if(!card) return;
     let sx=0, sy=0, dx=0, dy=0, active=false, done=false;
     const stampAdd = card.querySelector('.dv-stamp-add');
     const stampSkip = card.querySelector('.dv-stamp-skip');
-    const fling = liked => {
+    const fling = (liked, veto)=>{
       if(done) return; done = true;
       const dir = liked ? 1 : -1;
       card.style.transition = 'transform .3s ease, opacity .3s ease';
       card.style.transform = `translate(${dir*window.innerWidth}px, ${dy*0.3}px) rotate(${dir*16}deg)`;
       card.style.opacity = '0';
-      setTimeout(()=> onDone(liked), 230);
+      setTimeout(()=> onDone(liked, !!veto), 230);
     };
     card.addEventListener('pointerdown', e => {
       // the Google button must receive its own click — capturing here
@@ -1965,6 +2005,7 @@ async function openDiscoverDeck(){
     card.addEventListener('pointercancel', release);
     document.getElementById('dv-add').onclick = ()=> fling(true);
     document.getElementById('dv-skip').onclick = ()=> fling(false);
+    document.getElementById('dv-never').onclick = ()=> fling(false, true);
   }
 
   async function loadAndRender(){
@@ -2431,6 +2472,13 @@ function renderSettings(){
       </div>
     </div>
     <div class="settings-card">
+      <div class="srow" id="s-vetoed">
+        <div class="srow-icon"><i data-lucide="ban"></i></div>
+        <div class="srow-info"><div class="srow-label">Hidden date spots</div><div class="srow-sub">${(S.dates.discoverVetoes||[]).length ? (S.dates.discoverVetoes||[]).length + ' never shown in Discover' : 'Nothing vetoed'}</div></div>
+        <div class="srow-chev"><i data-lucide="chevron-right"></i></div>
+      </div>
+    </div>
+    <div class="settings-card">
       <div class="srow danger" id="s-delete-all">
         <div class="srow-icon red-icon"><i data-lucide="trash-2"></i></div>
         <div class="srow-info"><div class="srow-label">Delete all data</div><div class="srow-sub">Wipes everything permanently</div></div>
@@ -2521,10 +2569,55 @@ function renderSettings(){
     const sub = document.getElementById('s-hdr-sub');
     if(sub) sub.textContent = e.target.checked ? 'Mini bar always on' : 'Big header, shrinks on scroll';
   });
+  document.getElementById('s-vetoed').onclick = openVetoSheet;
   document.getElementById('s-delete-all').onclick = ()=>{
     if(!confirm('Delete ALL data? This cannot be undone.')) return;
     HOUSEHOLD.delete(); location.reload();
   };
+}
+
+// Manage the permanently-hidden Discover places: un-veto puts a spot back
+// into rotation for both phones (vetoes live in synced household state).
+function openVetoSheet(){
+  function bodyHTML(){
+    const vetoes = S.dates.discoverVetoes || [];
+    const activeSkips = (S.dates.discoverSkips || []).filter(s => Date.now() - s.ts < SKIP_COOLDOWN_MS).length;
+    let html = '';
+    if(!vetoes.length){
+      html += `<div class="empty-state" style="min-height:20vh;padding:24px"><i data-lucide="ban"></i><p>Nothing vetoed. The ban button on a Discover card hides a place for good — manage those here.</p></div>`;
+    } else {
+      html += vetoes.map(v => `
+        <div class="hist-entry" style="margin:0 0 10px">
+          <div class="he-icon" style="background:var(--red-soft)"><i data-lucide="ban" style="color:var(--red)"></i></div>
+          <div class="he-main">
+            <div class="he-name">${escapeHtml(v.name || 'Unknown place')}</div>
+            <div class="he-meta"><span class="he-who">${escapeHtml(v.category || 'Hidden from Discover')}</span></div>
+          </div>
+          <button class="he-restore" data-unveto="${escapeHtml(v.key)}"><i data-lucide="undo-2"></i>Allow</button>
+        </div>`).join('');
+    }
+    if(activeSkips) html += `<div style="text-align:center;color:var(--muted);font-size:12.5px;font-weight:600;padding:4px 0 2px">${activeSkips} more skipped recently — they return by themselves after 10 days</div>`;
+    return html;
+  }
+  openSheet(`
+    <div class="grabber"></div>
+    <div class="sheet-head"><div class="sheet-title">Hidden date spots</div>
+      <button class="sheet-close" id="sh-close"><i data-lucide="x"></i></button></div>
+    <div id="veto-list">${bodyHTML()}</div>`,
+  ()=>{
+    document.getElementById('sh-close').onclick = closeSheet;
+    function bind(){
+      document.querySelectorAll('[data-unveto]').forEach(btn => btn.onclick = ()=>{
+        const key = btn.dataset.unveto;
+        commitChange(state => {
+          state.dates.discoverVetoes = (state.dates.discoverVetoes || []).filter(v => v.key !== key);
+        });
+        const list = document.getElementById('veto-list');
+        if(list){ list.innerHTML = bodyHTML(); lucide.createIcons(); bind(); }
+      });
+    }
+    bind();
+  });
 }
 
 /* ════════════════════════════════════════ ROOMS TAB */

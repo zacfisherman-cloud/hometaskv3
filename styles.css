@@ -914,7 +914,7 @@ button,a,[class$="-tile"],[class$="-row"]{touch-action:manipulation}
 }
 .dv-gsearch svg{width:17px;height:17px}
 .dv-gsearch:active{background:var(--sky-soft);color:var(--sky-deep)}
-.dv-btns{display:flex;gap:26px;margin:20px 0 auto}
+.dv-btns{display:flex;gap:22px;margin:20px 0 auto;align-items:center}
 .dv-act{
   width:62px;height:62px;border-radius:50%;display:flex;align-items:center;justify-content:center;
   background:var(--card);border:1px solid var(--line-strong);box-shadow:var(--sh-sm);
@@ -923,6 +923,9 @@ button,a,[class$="-tile"],[class$="-row"]{touch-action:manipulation}
 .dv-act:active{transform:scale(.92)}
 .dv-act svg{width:26px;height:26px}
 .dv-skip{color:var(--red)}
+/* smaller in-between button: permanent veto, visually quieter than skip/add */
+.dv-never{width:48px;height:48px;color:var(--muted)}
+.dv-never svg{width:20px;height:20px}
 .dv-add{color:#28A05A;border-color:#28A05A}
 .dv-add svg{fill:rgba(40,160,90,.18)}
 
