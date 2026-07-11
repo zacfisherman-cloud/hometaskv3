@@ -452,6 +452,7 @@ button,a,[class$="-tile"],[class$="-row"]{touch-action:manipulation}
 .hi-medium{background:var(--gold-soft);color:var(--gold)}
 .hi-hard{background:var(--red-soft);color:var(--red)}
 
+.h2h-wt-note{text-align:center;font-size:10.5px;font-weight:600;color:var(--muted);letter-spacing:.04em;margin:2px 0 10px}
 .stats-hdr-row{display:flex;align-items:baseline;justify-content:space-between;padding:16px 0 8px}
 .stats-hdr-title{font-size:15px;font-weight:600;letter-spacing:.01em;color:var(--ink)}
 

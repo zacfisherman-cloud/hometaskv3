@@ -1299,11 +1299,17 @@ function _statsTasksHTML(){
   </div>`;
 
   /* ── 3. Personal stats ── */
+  // Fairness is effort-weighted: a Hard deep-clean shouldn't count the same
+  // as feeding the fish. Easy 1 · Medium 2 · Hard 3.
+  const EFFORT = {Easy:1, Medium:2, Hard:3};
+  const effortOf = l => EFFORT[l.difficulty] || 1;
   function buildStats(name){
     const mine = mineLog(name);
     return {
       total:  mine.length,
       month:  mine.filter(l=>l.completedAt.startsWith(monthStr)).length,
+      pts:      mine.reduce((s,l)=>s+effortOf(l), 0),
+      monthPts: mine.filter(l=>l.completedAt.startsWith(monthStr)).reduce((s,l)=>s+effortOf(l), 0),
       streak: calcStreak(name),
       top:    topTask(name)
     };
@@ -1338,10 +1344,10 @@ function _statsTasksHTML(){
     <div class="person-cards">${personCardHTML(name1,s1)}${personCardHTML(name2,s2)}</div>
   </div>`;
 
-  /* ── 4. Head to head ── */
-  const t1 = s1.total, t2 = s2.total, tot = t1+t2||1;
+  /* ── 4. Head to head (effort-weighted) ── */
+  const t1 = s1.pts, t2 = s2.pts, tot = t1+t2||1;
   const p1pct = Math.round(t1/tot*100);
-  const m1 = s1.month, m2 = s2.month;
+  const m1 = s1.monthPts, m2 = s2.monthPts;
   const monthLeader = m1>m2 ? name1 : m2>m1 ? name2 : null;
 
   html += `<div style="padding:0 16px">
@@ -1358,6 +1364,7 @@ function _statsTasksHTML(){
           <div class="h2h-num">${t2}</div>
         </div>
       </div>
+      <div class="h2h-wt-note">Effort points — Easy 1 · Medium 2 · Hard 3</div>
       <div class="h2h-progress">
         <div class="h2h-p1" style="width:${p1pct}%"></div>
         <div class="h2h-p2" style="width:${100-p1pct}%"></div>
