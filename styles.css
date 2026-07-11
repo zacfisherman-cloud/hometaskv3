@@ -327,6 +327,7 @@ button,a,[class$="-tile"],[class$="-row"]{touch-action:manipulation}
 .tc-due.due-today{color:var(--sky-deep);font-weight:600}
 .tc-due.due-soon{color:var(--muted)}
 .tc-due.due-overdue{color:var(--red);font-weight:600}
+.tc-last{color:var(--muted);font-weight:500}
 .tc-actions{display:flex;gap:8px;margin-top:12px}
 .tc-act{
   flex:1;height:44px;border-radius:var(--r-pill);font-weight:600;font-size:13px;

@@ -630,6 +630,19 @@ function taskTurnText(task){
   return nm ? `${nm}'s turn` : 'Both';
 }
 
+// Most recent completion of this task — the log is push-ordered, so scan
+// from the end. Small n × small m; fine at this app's scale.
+function lastDoneText(taskId){
+  const log = S.completedLog || [];
+  for(let i = log.length - 1; i >= 0; i--){
+    if(log[i].taskId === taskId){
+      const d = Math.round((new Date(todayStr()+'T00:00:00') - new Date(log[i].completedAt+'T00:00:00')) / 86400000);
+      return d <= 0 ? 'done today' : d === 1 ? 'done yesterday' : `last done ${d}d ago`;
+    }
+  }
+  return null;
+}
+
 function taskCardHTML(task){
   const diff  = task.difficulty || 'Easy';
   const cls   = {Easy:'easy', Medium:'medium', Hard:'hard'}[diff] || 'easy';
@@ -651,7 +664,7 @@ function taskCardHTML(task){
             ${task.isDeepClean ? '<span class="badge badge-dc"><i data-lucide="sparkles"></i>Deep clean</span>' : ''}
           </div>
           <div class="tc-due ${due.cls}">
-            <i data-lucide="calendar"></i>${due.text}
+            <i data-lucide="calendar"></i>${due.text}${(()=>{const ld=lastDoneText(task.id); return ld?`<span class="tc-last">· ${ld}</span>`:'';})()}
           </div>
         </div>
       </div>
