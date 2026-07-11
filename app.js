@@ -621,6 +621,15 @@ function _renderRoomDetailPanel(roomName){
   _bindTaskCards();
 }
 
+// 'Both' tasks rotate: nextTurn ('name1'|'name2') is whoever owes the next
+// round, flipped away from the completer each time it's done. Until the
+// first completion sets it, the badge just says Both.
+function taskTurnText(task){
+  if(task.assignee !== 'Both') return task.assignee;
+  const nm = task.nextTurn==='name2' ? S.name2 : task.nextTurn==='name1' ? S.name1 : null;
+  return nm ? `${nm}'s turn` : 'Both';
+}
+
 function taskCardHTML(task){
   const diff  = task.difficulty || 'Easy';
   const cls   = {Easy:'easy', Medium:'medium', Hard:'hard'}[diff] || 'easy';
@@ -636,7 +645,7 @@ function taskCardHTML(task){
         <div class="tc-main">
           <div class="tc-title">${escapeHtml(task.name)}</div>
           <div class="tc-badges">
-            <span class="badge badge-who"><i data-lucide="user"></i>${escapeHtml(task.assignee)}</span>
+            <span class="badge badge-who"><i data-lucide="${task.assignee==='Both'?'users':'user'}"></i>${escapeHtml(taskTurnText(task))}</span>
             <span class="badge badge-freq">${freqLabel(task)}</span>
             <span class="badge badge-diff ${diffCls}">${diff}</span>
             ${task.isDeepClean ? '<span class="badge badge-dc"><i data-lucide="sparkles"></i>Deep clean</span>' : ''}
@@ -777,6 +786,8 @@ function completeTask(id){
     } else {
       state.completedLog.push(entry);
       task.dueDate = addDays(task.dueDate, getFreqDays(task));
+      // take-turns rotation: next round belongs to the OTHER person
+      if(task.assignee === 'Both') task.nextTurn = myRole==='name2' ? 'name1' : 'name2';
     }
   });
   renderTasks();
@@ -1085,6 +1096,7 @@ function openTaskDetail(id){
         current.difficulty  = newDiff;
         current.isDeepClean = newDeepClean;
         current.room        = newRoom;
+        if(newAssignee !== 'Both') delete current.nextTurn;
       });
       closeSheet(); renderTasks();
     };
