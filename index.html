@@ -14,6 +14,11 @@
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
 <script src="app.js" defer></script>
+<script>
+  // Offline shell (sw.js). Registration failure (e.g. dev harness) is fine.
+  if('serviceWorker' in navigator)
+    addEventListener('load', ()=>navigator.serviceWorker.register('/sw.js').catch(()=>{}));
+</script>
 </head>
 <body>
 <div id="root">
