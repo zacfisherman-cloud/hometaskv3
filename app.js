@@ -222,6 +222,16 @@ function saveRole(role){ try{ localStorage.setItem(ROLE_KEY, role); }catch(e){} 
 let myRole = loadRole(); // 'name1' | 'name2' | null (not chosen yet)
 function myName(){ return myRole==='name2' ? S.name2 : S.name1; }
 
+// Small safe wrappers for the growing set of per-device preferences.
+function lsGet(k){ try{ return localStorage.getItem(k); }catch(e){ return null; } }
+function lsSet(k,v){ try{ localStorage.setItem(k,v); }catch(e){} }
+
+// Done/Skip buttons on task cards: hidden by default in favour of swiping.
+// Always shown on non-touch devices, where swiping isn't possible.
+function showTaskButtons(){
+  return lsGet('ht-task-buttons')==='1' || !('ontouchstart' in window);
+}
+
 /* ── theme: light is the permanent default at all hours. Dark is a
    manual opt-in from Settings only — the old time-of-day auto-switch
    is retired. Local-only preference, never synced. */
@@ -416,6 +426,10 @@ function _renderTasksPanel(){
   if(!dates.length&&!overdue.length){
     html += `<div class="empty-state"><i data-lucide="check-circle-2"></i><p>All clear! Tap + to add tasks.</p></div>`;
   }
+  // One-time swipe hint: shown until the first successful swipe (or tap).
+  if((overdue.length || dates.length) && !showTaskButtons() && lsGet('ht-swipe-hint')!=='done'){
+    html += `<div class="swipe-hint" id="swipe-hint"><i data-lucide="move-horizontal"></i>Swipe a task right to complete, left to skip</div>`;
+  }
   dates.forEach(date=>{
     const isToday = date===t;
     html += `<div class="day-header">
@@ -427,9 +441,7 @@ function _renderTasksPanel(){
   setPanelHTML(html);
   lucide.createIcons();
   _bindTabListeners();
-  document.querySelectorAll('[data-done]').forEach(btn=>btn.addEventListener('click',e=>{ e.stopPropagation(); completeTask(btn.dataset.done); }));
-  document.querySelectorAll('[data-skip]').forEach(btn=>btn.addEventListener('click',e=>{ e.stopPropagation(); skipTask(btn.dataset.skip); }));
-  document.querySelectorAll('[data-task-card]').forEach(card=>card.addEventListener('click',e=>{ if(e.target.closest('button,a')) return; openTaskDetail(card.dataset.taskCard); }));
+  _bindTaskCards();
 }
 // Past-date label for the completed log (dayLabelFor is future-oriented).
 function histDayLabel(dateStr){
@@ -571,9 +583,7 @@ function _renderRoomDetailPanel(roomName){
   lucide.createIcons();
   _bindTabListeners();
   document.getElementById('room-back-btn').onclick=()=>{ tasksSubView='rooms'; currentRoomDetail=null; renderTasks(); };
-  document.querySelectorAll('[data-done]').forEach(btn=>btn.addEventListener('click',e=>{ e.stopPropagation(); completeTask(btn.dataset.done); }));
-  document.querySelectorAll('[data-skip]').forEach(btn=>btn.addEventListener('click',e=>{ e.stopPropagation(); skipTask(btn.dataset.skip); }));
-  document.querySelectorAll('[data-task-card]').forEach(card=>card.addEventListener('click',e=>{ if(e.target.closest('button,a')) return; openTaskDetail(card.dataset.taskCard); }));
+  _bindTaskCards();
 }
 
 function taskCardHTML(task){
@@ -583,6 +593,8 @@ function taskCardHTML(task){
   const due   = dueDateDisplay(task.dueDate);
 
   return `<div class="task-card ${cls}" data-task-card="${task.id}">
+    <div class="tc-reveal tc-reveal-done"><i data-lucide="check"></i>Done</div>
+    <div class="tc-reveal tc-reveal-skip"><i data-lucide="skip-forward"></i>Skip</div>
     <div class="tc-inner">
       <div class="tc-top">
         <div class="tc-icon"><i data-lucide="${taskIcon(task)}"></i></div>
@@ -599,12 +611,86 @@ function taskCardHTML(task){
           </div>
         </div>
       </div>
-      <div class="tc-actions">
+      ${showTaskButtons() ? `<div class="tc-actions">
         <button class="tc-act" data-skip="${task.id}"><i data-lucide="skip-forward"></i>Skip</button>
         <button class="tc-act done-act" data-done="${task.id}"><i data-lucide="check"></i>Done</button>
-      </div>
+      </div>` : ''}
     </div>
   </div>`;
+}
+
+/* ── swipe gestures on task cards ─────────────────────────────
+   Right = Done, left = Skip. touch-action:pan-y leaves vertical scrolling
+   to the browser; we claim the gesture only once movement is clearly
+   horizontal, then preventDefault so the panel doesn't scroll under it. */
+const SWIPE_THRESH = 88;
+function attachSwipe(card){
+  const inner = card.querySelector('.tc-inner');
+  if(!inner) return;
+  const id = card.dataset.taskCard;
+  let startX=0, startY=0, dx=0, engaged=false, cancelled=false;
+  const reset = ()=>{
+    inner.style.transition = '';
+    inner.style.transform = '';
+    card.classList.remove('swiping-done','swiping-skip','swipe-armed');
+  };
+  card.addEventListener('touchstart', e=>{
+    if(e.touches.length !== 1) return;
+    startX = e.touches[0].clientX; startY = e.touches[0].clientY;
+    dx = 0; engaged = false; cancelled = false;
+    inner.style.transition = 'none';
+  }, {passive:true});
+  card.addEventListener('touchmove', e=>{
+    if(cancelled) return;
+    const mx = e.touches[0].clientX - startX;
+    const my = e.touches[0].clientY - startY;
+    if(!engaged){
+      // Vertical intent wins immediately — never fight the scroll.
+      if(Math.abs(my) > 12 && Math.abs(my) > Math.abs(mx)){ cancelled = true; return; }
+      if(Math.abs(mx) > 14 && Math.abs(mx) > Math.abs(my)*1.4) engaged = true;
+      else return;
+    }
+    if(e.cancelable) e.preventDefault();
+    dx = mx;
+    // Rubber-band damping past the trigger point
+    const damped = dx < -SWIPE_THRESH ? -SWIPE_THRESH + (dx+SWIPE_THRESH)*.25
+                 : dx >  SWIPE_THRESH ?  SWIPE_THRESH + (dx-SWIPE_THRESH)*.25 : dx;
+    inner.style.transform = `translateX(${damped}px)`;
+    card.classList.toggle('swiping-done', dx > 12);
+    card.classList.toggle('swiping-skip', dx < -12);
+    card.classList.toggle('swipe-armed', Math.abs(dx) >= SWIPE_THRESH);
+  }, {passive:false});
+  card.addEventListener('touchend', e=>{
+    if(!engaged){ inner.style.transition=''; return; }
+    // Suppress the synthetic click that follows touchend, so the re-rendered
+    // card under the same spot doesn't spuriously open its detail sheet.
+    if(e.cancelable) e.preventDefault();
+    inner.style.transition = 'transform .22s cubic-bezier(.4,0,.2,1)';
+    if(dx >= SWIPE_THRESH){
+      lsSet('ht-swipe-hint','done');
+      inner.style.transform = 'translateX(105%)';
+      setTimeout(()=>completeTask(id), 150);
+    } else if(dx <= -SWIPE_THRESH){
+      lsSet('ht-swipe-hint','done');
+      inner.style.transform = 'translateX(-105%)';
+      setTimeout(()=>skipTask(id), 150);
+    } else {
+      reset();
+    }
+  });
+  card.addEventListener('touchcancel', ()=>{ cancelled = true; reset(); });
+}
+
+// One shared binder for every panel that renders task cards.
+function _bindTaskCards(){
+  document.querySelectorAll('[data-done]').forEach(btn=>btn.addEventListener('click',e=>{ e.stopPropagation(); completeTask(btn.dataset.done); }));
+  document.querySelectorAll('[data-skip]').forEach(btn=>btn.addEventListener('click',e=>{ e.stopPropagation(); skipTask(btn.dataset.skip); }));
+  document.querySelectorAll('[data-task-card]').forEach(card=>{
+    card.addEventListener('click',e=>{ if(e.target.closest('button,a')) return; openTaskDetail(card.dataset.taskCard); });
+    attachSwipe(card);
+  });
+  const hint = document.getElementById('swipe-hint');
+  if(hint) hint.onclick = ()=>{ lsSet('ht-swipe-hint','done'); hint.remove(); };
 }
 
 /* ── toast (single instance, auto-dismiss) ───────── */
@@ -2282,6 +2368,14 @@ function renderSettings(){
         <div class="srow-info"><div class="srow-label">Appearance</div><div class="srow-sub">${loadThemePref()==='dark' ? 'Dark' : 'Light'}</div></div>
         <div class="srow-chev"><i data-lucide="chevron-right"></i></div>
       </div>
+      <div class="srow">
+        <div class="srow-icon"><i data-lucide="square-check"></i></div>
+        <div class="srow-info"><div class="srow-label">Done / Skip buttons</div><div class="srow-sub" id="s-btns-sub">${lsGet('ht-task-buttons')==='1' ? 'Shown on task cards' : 'Hidden — swipe cards instead'}</div></div>
+        <label class="toggle-switch">
+          <input type="checkbox" id="s-task-buttons" ${lsGet('ht-task-buttons')==='1'?'checked':''}>
+          <div class="toggle-slider"></div>
+        </label>
+      </div>
     </div>
     <div class="settings-card">
       <div class="srow danger" id="s-delete-all">
@@ -2364,6 +2458,11 @@ function renderSettings(){
       }));
     });
   };
+  document.getElementById('s-task-buttons').addEventListener('change', e => {
+    lsSet('ht-task-buttons', e.target.checked ? '1' : '0');
+    const sub = document.getElementById('s-btns-sub');
+    if(sub) sub.textContent = e.target.checked ? 'Shown on task cards' : 'Hidden — swipe cards instead';
+  });
   document.getElementById('s-delete-all').onclick = ()=>{
     if(!confirm('Delete ALL data? This cannot be undone.')) return;
     HOUSEHOLD.delete(); location.reload();
