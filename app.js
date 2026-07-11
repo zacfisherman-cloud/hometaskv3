@@ -30,7 +30,14 @@ const ROOM_CHIPS = [
 ];
 
 function uid(){ return Math.random().toString(36).slice(2,9); }
-function todayStr(){ return new Date().toISOString().split('T')[0]; }
+// Format a Date as YYYY-MM-DD in LOCAL time. toISOString() renders the UTC
+// date — in Melbourne that's still *yesterday* until 10-11am, so "today"
+// lagged a day every morning, and it silently shaved a day off every
+// addDays() result (weekly reschedules landed +6 days, monthly +29).
+function toLocalYMD(d){
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+function todayStr(){ return toLocalYMD(new Date()); }
 
 // Escapes free-text user input before it's interpolated into innerHTML —
 // covers text-node and double-quoted-attribute contexts alike.
@@ -42,12 +49,12 @@ function escapeHtml(str){
 
 function addDays(dateStr, n){
   const d = new Date(dateStr + 'T00:00:00'); d.setDate(d.getDate() + n);
-  return d.toISOString().split('T')[0];
+  return toLocalYMD(d);
 }
 function getWeekStart(d = new Date()){
   const day = d.getDay(), diff = d.getDate() - day + (day===0?-6:1);
   const m = new Date(d); m.setDate(diff); m.setHours(0,0,0,0);
-  return m.toISOString().split('T')[0];
+  return toLocalYMD(m);
 }
 function weekLabel(ws){
   const s = new Date(ws+'T00:00:00'), e = new Date(s); e.setDate(e.getDate()+6);
@@ -974,7 +981,7 @@ function _statsTasksHTML(){
     let streak = 0;
     for(let i=start; i<52; i++){
       const d  = new Date(ws+'T00:00:00'); d.setDate(d.getDate() - i*7);
-      const wS = d.toISOString().split('T')[0], wE = addDays(wS,6);
+      const wS = toLocalYMD(d), wE = addDays(wS,6);
       const has = log.some(l => (l.assignee===name||l.assignee==='Both') && l.completedAt>=wS && l.completedAt<=wE);
       if(has) streak++; else break;
     }
@@ -1010,7 +1017,7 @@ function _statsTasksHTML(){
   const weeks = [];
   for(let i=7; i>=0; i--){
     const d  = new Date(ws+'T00:00:00'); d.setDate(d.getDate() - i*7);
-    const wS = d.toISOString().split('T')[0], wE = addDays(wS,6);
+    const wS = toLocalYMD(d), wE = addDays(wS,6);
     weeks.push({ wS, done: log.filter(l=>l.completedAt>=wS&&l.completedAt<=wE).length, isCurrent: i===0 });
   }
   const maxDone = Math.max(...weeks.map(w=>w.done), 1);
