@@ -88,7 +88,10 @@ function shortDateStr(dateStr){
 }
 function dueDateDisplay(dateStr){
   const t = todayStr();
-  if(dateStr < t)  return {cls:'due-overdue', text:'Overdue'};
+  if(dateStr < t){
+    const days = Math.round((new Date(t+'T00:00:00') - new Date(dateStr+'T00:00:00')) / 86400000);
+    return {cls:'due-overdue', text: days===1 ? '1 day overdue' : `${days} days overdue`};
+  }
   if(dateStr === t) return {cls:'due-today',   text:'Due today'};
   if(dateStr === addDays(t,1)) return {cls:'due-soon', text:'Due tomorrow'};
   const d = new Date(dateStr+'T00:00:00');
@@ -419,7 +422,10 @@ function _renderTasksPanel(){
   upcoming.forEach(x=>{ (byDate[x.dueDate]=byDate[x.dueDate]||[]).push(x); });
   let html = _tabsRowHTML('tasks');
   if(overdue.length){
-    html += `<div class="day-header"><div class="day-label overdue-lbl">Overdue</div></div>`;
+    html += `<div class="day-header">
+      <div class="day-label overdue-lbl">Overdue</div>
+      <button class="overdue-bulk" id="overdue-bulk"><i data-lucide="calendar-check"></i>Move all to today</button>
+    </div>`;
     overdue.forEach(x=>{ html+=taskCardHTML(x); });
   }
   const dates = Object.keys(byDate).sort();
@@ -442,6 +448,16 @@ function _renderTasksPanel(){
   lucide.createIcons();
   _bindTabListeners();
   _bindTaskCards();
+  const bulk = document.getElementById('overdue-bulk');
+  if(bulk) bulk.onclick = ()=>{
+    const n = S.tasks.filter(x=>x.dueDate<todayStr()).length;
+    if(!n || !confirm(`Reschedule ${n===1?'the overdue task':'all '+n+' overdue tasks'} to today? Their recurrence continues from today.`)) return;
+    commitChange(state => {
+      const today = todayStr();
+      state.tasks.forEach(x=>{ if(x.dueDate < today) x.dueDate = today; });
+    });
+    renderTasks();
+  };
 }
 // Past-date label for the completed log (dayLabelFor is future-oriented).
 function histDayLabel(dateStr){

@@ -253,6 +253,14 @@ button,a,[class$="-tile"],[class$="-row"]{touch-action:manipulation}
   font-size:11px;font-weight:600;letter-spacing:.05em;color:var(--muted);
   border:1px solid var(--line);border-radius:var(--r-pill);padding:4px 11px;
 }
+.overdue-bulk{
+  height:32px;padding:0 12px;border-radius:var(--r-pill);
+  background:var(--red-soft);color:var(--red);
+  font-weight:600;font-size:12px;display:flex;align-items:center;gap:5px;
+  transition:transform .12s;
+}
+.overdue-bulk:active{transform:scale(.95)}
+.overdue-bulk svg{width:13px;height:13px}
 
 /* ── task card ───────────────────────────────────────────────── */
 .task-card{
