@@ -13,7 +13,7 @@ const HOUSEHOLD = db.collection('households').doc('home');
 let S = {};
 
 const FREQ_DAYS = {daily:1, weekly:7, fortnightly:14, monthly:30};
-const FREQ_LABELS = {daily:'Daily', weekly:'Weekly', fortnightly:'Fortnightly', monthly:'Monthly', custom:'Custom'};
+const FREQ_LABELS = {once:'Once', daily:'Daily', weekly:'Weekly', fortnightly:'Fortnightly', monthly:'Monthly', custom:'Custom'};
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const DAYS = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
 const ROOM_CHIPS = [
@@ -552,7 +552,8 @@ function restoreCompletion(logId){
   const task = S.tasks.find(t=>t.id===entry.taskId);
   const isLatest = !list.some((l,i)=> i>idx && l.taskId===entry.taskId);
   let msg;
-  if(!task)          msg = `"${entry.name}" no longer exists as a task — this will just remove the history entry.`;
+  if(!task && entry.onceTask) msg = `Restore "${entry.name}"? The one-off task comes back to the pending list.`;
+  else if(!task)     msg = `"${entry.name}" no longer exists as a task — this will just remove the history entry.`;
   else if(!isLatest) msg = `"${entry.name}" has been completed again since — this removes just this history entry without changing its schedule.`;
   else {
     const revertTo = entry.prevDueDate || addDays(task.dueDate, -getFreqDays(task));
@@ -570,7 +571,10 @@ function applyRestore(logId){
     const e = state.completedLog[li];
     const latest = !state.completedLog.some((l,j)=> j>li && l.taskId===e.taskId);
     state.completedLog.splice(li, 1);
-    if(latest){
+    if(e.onceTask && !state.tasks.some(t=>t.id===e.taskId)){
+      // completed one-off: put the archived task back exactly as it was
+      state.tasks.push({...e.onceTask});
+    } else if(latest){
       const tk = state.tasks.find(t=>t.id===e.taskId);
       if(tk) tk.dueDate = e.prevDueDate || addDays(tk.dueDate, -getFreqDays(tk));
     }
@@ -759,12 +763,21 @@ function completeTask(id){
     const task = state.tasks.find(t=>t.id===id); if(!task) return;
     // prevDueDate lets the Completed-history "Restore" rewind the schedule to
     // exactly the due date this completion advanced it from.
-    state.completedLog.push({
+    const entry = {
       id:logId, taskId:id, name:task.name,
       completedAt, prevDueDate:task.dueDate, difficulty:task.difficulty,
       assignee:task.assignee, completedBy:myName(), isDeepClean:task.isDeepClean
-    });
-    task.dueDate = addDays(task.dueDate, getFreqDays(task));
+    };
+    if(task.frequency === 'once'){
+      // One-offs archive on completion instead of rescheduling. Snapshot the
+      // task into the log entry so Restore/Undo can resurrect it whole.
+      entry.onceTask = {...task};
+      state.completedLog.push(entry);
+      state.tasks = state.tasks.filter(t=>t.id!==id);
+    } else {
+      state.completedLog.push(entry);
+      task.dueDate = addDays(task.dueDate, getFreqDays(task));
+    }
   });
   renderTasks();
   // Fat-finger escape hatch: same revert as the history Restore, no confirm.
@@ -788,7 +801,7 @@ function loadAddDefaults(){
 function openAddTaskSheet(){
   const d = loadAddDefaults();
   let selWho  = [S.name1, S.name2, 'Both'].includes(d.assignee) ? d.assignee : myName();
-  let selFreq = ['daily','weekly','fortnightly','monthly','custom'].includes(d.frequency) ? d.frequency : 'weekly';
+  let selFreq = ['once','daily','weekly','fortnightly','monthly','custom'].includes(d.frequency) ? d.frequency : 'weekly';
   let selDiff = ['Easy','Medium','Hard'].includes(d.difficulty) ? d.difficulty : 'Easy';
   let isDeepClean = false;
   let selRoom = ROOM_CHIPS.some(r=>r.name===d.room) ? d.room : '';
@@ -820,6 +833,7 @@ function openAddTaskSheet(){
     <div>
       <div class="seg-lbl">Frequency</div>
       <div class="chip-grid" id="freq-chips">
+        <div class="chip ${selFreq==='once'?'sel':''}" data-freq="once">Once</div>
         <div class="chip ${selFreq==='daily'?'sel':''}" data-freq="daily">Daily</div>
         <div class="chip ${selFreq==='weekly'?'sel':''}" data-freq="weekly">Weekly</div>
         <div class="chip ${selFreq==='fortnightly'?'sel':''}" data-freq="fortnightly">Fortnightly</div>
@@ -963,6 +977,7 @@ function openTaskDetail(id){
     <div>
       <div class="seg-lbl">Frequency</div>
       <div class="chip-grid">
+        <div class="chip ${selFreq==='once'?'sel':''}" data-freq="once">Once</div>
         <div class="chip ${selFreq==='daily'?'sel':''}" data-freq="daily">Daily</div>
         <div class="chip ${selFreq==='weekly'?'sel':''}" data-freq="weekly">Weekly</div>
         <div class="chip ${selFreq==='fortnightly'?'sel':''}" data-freq="fortnightly">Fortnightly</div>
