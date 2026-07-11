@@ -698,7 +698,7 @@ button,a,[class$="-tile"],[class$="-row"]{touch-action:manipulation}
   border:1px solid var(--line);border-bottom:none;
   border-radius:26px 26px 0 0;
   padding:12px 22px calc(env(safe-area-inset-bottom) + 34px);
-  display:flex;flex-direction:column;gap:16px;max-height:92dvh;overflow-y:auto;
+  display:flex;flex-direction:column;gap:16px;max-height:92dvh;overflow-y:auto;overscroll-behavior:contain;
   animation:slideUp .22s ease;
 }
 #sheet::-webkit-scrollbar{display:none}
@@ -770,7 +770,7 @@ button,a,[class$="-tile"],[class$="-row"]{touch-action:manipulation}
 #mdim{position:absolute;inset:0;background:rgba(5,8,14,.65);-webkit-backdrop-filter:blur(3px);backdrop-filter:blur(3px)}
 #mbox{
   position:relative;background:var(--sheet);border:1px solid var(--line);border-radius:24px;padding:28px 24px;
-  width:100%;max-width:380px;box-shadow:var(--sh-lg);animation:modalIn .22s ease;max-height:82dvh;overflow-y:auto;
+  width:100%;max-width:380px;box-shadow:var(--sh-lg);animation:modalIn .22s ease;max-height:82dvh;overflow-y:auto;overscroll-behavior:contain;
 }
 @keyframes modalIn{from{opacity:0;transform:scale(.92)}to{opacity:1;transform:none}}
 .mbox-icon{width:60px;height:60px;border-radius:20px;background:var(--sky-soft);display:flex;align-items:center;justify-content:center;margin:0 auto 16px}
@@ -860,7 +860,7 @@ button,a,[class$="-tile"],[class$="-row"]{touch-action:manipulation}
 #dv-stage{position:relative;width:100%;max-width:360px;height:300px;margin-top:auto}
 /* compact list mode: the stage becomes a full-height scroller of rows */
 #dv-stage.listing{
-  height:auto;flex:1;min-height:0;margin-top:16px;overflow-y:auto;
+  height:auto;flex:1;min-height:0;margin-top:16px;overflow-y:auto;overscroll-behavior:contain;
   border-radius:18px;
 }
 .dv-row{

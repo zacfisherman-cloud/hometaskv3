@@ -1864,6 +1864,7 @@ async function openDiscoverDeck(){
   document.getElementById('discover-overlay')?.remove();
   const ov = document.createElement('div');
   ov.id = 'discover-overlay';
+  guardOverlayScroll(ov);
   ov.innerHTML = `
     <button id="dv-close">&#x2715;</button>
     <div class="dv-title">Discover</div>
@@ -2103,6 +2104,7 @@ function openWheelOverlay(places, practice=false){
   const size = Math.min(window.innerWidth-32, 300);
   const ov = document.createElement('div');
   ov.id='wheel-overlay';
+  guardOverlayScroll(ov);
   ov.innerHTML=`
     <button id="wheel-dismiss-btn">&#x2715;</button>
     <div class="wh-title">${practice ? 'Just practicing…' : 'Asking the stars…'}</div>
@@ -2898,6 +2900,29 @@ function renderRoomDetail(roomName){
 }
 
 /* ════════════════════════════════════════ SHEET / MODAL HELPERS */
+// iOS scroll chaining: a touch drag over an overlay whose content has nothing
+// (left) to scroll falls through and scrolls whatever sits behind the dim —
+// first reported as the Meals recipe-detail sheet, but it applied to every
+// sheet, modal and full-screen overlay. Cancel any touchmove that no
+// genuinely scrollable element inside the overlay can consume;
+// overscroll-behavior:contain (CSS) handles the at-the-boundary case for the
+// ones that do scroll.
+function guardOverlayScroll(rootEl){
+  if(!rootEl) return;
+  rootEl.addEventListener('touchmove', e => {
+    let el = e.target instanceof Element ? e.target : null;
+    while(el && el !== rootEl){
+      if(el.tagName === 'TEXTAREA') return; // its own internal scroll
+      if(el.scrollHeight > el.clientHeight + 1 &&
+         /(auto|scroll)/.test(getComputedStyle(el).overflowY)) return;
+      el = el.parentElement;
+    }
+    if(e.cancelable) e.preventDefault();
+  }, {passive:false});
+}
+guardOverlayScroll(document.getElementById('overlay'));
+guardOverlayScroll(document.getElementById('modal-layer'));
+
 function openSheet(html, cb){
   document.getElementById('sheet').innerHTML = html;
   document.getElementById('overlay').classList.remove('hidden');
