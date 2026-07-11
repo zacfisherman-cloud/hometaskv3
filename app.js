@@ -235,6 +235,10 @@ function showTaskButtons(){
   return lsGet('ht-task-buttons')==='1' || !('ontouchstart' in window);
 }
 
+// Permanently-compact Tasks header (per-device): the mini glass bar replaces
+// the big greeting header entirely, and scroll-collapse is switched off.
+function alwaysCompactHdr(){ return lsGet('ht-hdr-compact')==='1'; }
+
 /* ── theme: light is the permanent default at all hours. Dark is a
    manual opt-in from Settings only — the old time-of-day auto-switch
    is retired. Local-only preference, never synced. */
@@ -313,7 +317,15 @@ function renderTasks(){
   const inRooms = tasksSubView==='rooms'||tasksSubView==='roomDetail';
   const inHist  = tasksSubView==='history';
   const prog = weekProgress();
-  if(inRooms || inHist){
+  if(alwaysCompactHdr()){
+    // Permanent mini state: no big header at all, the glass bar is always on
+    // and the in-panel toggle row is skipped (_tabsRowHTML returns '').
+    isHdrCollapsed = false;
+    document.getElementById('hdr').innerHTML = '';
+    const miniHdr = document.getElementById('mini-hdr');
+    miniHdr.classList.add('visible');
+    document.getElementById('panel').style.paddingTop = miniHdr.offsetHeight + 'px';
+  } else if(inRooms || inHist){
     // Rooms and Completed-history get the compact, static header: the weekly
     // ring is Tasks-view context, and the collapsing behavior has nowhere to
     // go on a short grid — it caused a visible layout glitch. A one-line
@@ -391,6 +403,9 @@ function renderTasks(){
   }
 }
 function _tabsRowHTML(activeTab){
+  // Permanent-compact mode: the mini bar already provides tabs, history and
+  // add — an in-panel copy would just duplicate it (the double-toggle bug).
+  if(alwaysCompactHdr()) return '';
   const t = activeTab==='tasks', r = activeTab==='rooms';
   return `<div class="tasks-view-row">
     <div class="tasks-view-chips">
@@ -2406,6 +2421,14 @@ function renderSettings(){
           <div class="toggle-slider"></div>
         </label>
       </div>
+      <div class="srow">
+        <div class="srow-icon"><i data-lucide="panel-top-close"></i></div>
+        <div class="srow-info"><div class="srow-label">Compact Tasks header</div><div class="srow-sub" id="s-hdr-sub">${alwaysCompactHdr() ? 'Mini bar always on' : 'Big header, shrinks on scroll'}</div></div>
+        <label class="toggle-switch">
+          <input type="checkbox" id="s-compact-hdr" ${alwaysCompactHdr()?'checked':''}>
+          <div class="toggle-slider"></div>
+        </label>
+      </div>
     </div>
     <div class="settings-card">
       <div class="srow danger" id="s-delete-all">
@@ -2492,6 +2515,11 @@ function renderSettings(){
     lsSet('ht-task-buttons', e.target.checked ? '1' : '0');
     const sub = document.getElementById('s-btns-sub');
     if(sub) sub.textContent = e.target.checked ? 'Shown on task cards' : 'Hidden — swipe cards instead';
+  });
+  document.getElementById('s-compact-hdr').addEventListener('change', e => {
+    lsSet('ht-hdr-compact', e.target.checked ? '1' : '0');
+    const sub = document.getElementById('s-hdr-sub');
+    if(sub) sub.textContent = e.target.checked ? 'Mini bar always on' : 'Big header, shrinks on scroll';
   });
   document.getElementById('s-delete-all').onclick = ()=>{
     if(!confirm('Delete ALL data? This cannot be undone.')) return;
@@ -3776,6 +3804,11 @@ function initScrollCollapse(){
   if(mhTasks) mhTasks.onclick = ()=>{ tasksSubView='tasks'; currentRoomDetail=null; renderTasks(); };
   const mhRooms = document.getElementById('mh-rooms-btn');
   if(mhRooms) mhRooms.onclick = ()=>{ tasksSubView='rooms'; currentRoomDetail=null; renderTasks(); };
+  const mhHist = document.getElementById('mh-hist-btn');
+  if(mhHist) mhHist.onclick = ()=>{
+    tasksSubView='history'; currentRoomDetail=null; renderTasks();
+    document.getElementById('panel').scrollTop = 0;
+  };
 
   const panel   = document.getElementById('panel');
   const miniHdr = document.getElementById('mini-hdr');
@@ -3881,6 +3914,8 @@ function initScrollCollapse(){
     if(currentTab !== 'tasks') return;
     // Rooms/room-detail/history use the compact static header — no collapse.
     if(tasksSubView !== 'tasks') return;
+    // Permanent-compact mode has no big header to collapse or expand.
+    if(alwaysCompactHdr()) return;
     if(delta > 0){
       // Scrolling down — reset upward accumulator and collapse when past threshold
       upAccum = 0;
