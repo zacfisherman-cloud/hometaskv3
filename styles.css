@@ -564,6 +564,36 @@ button,a,[class$="-tile"],[class$="-row"]{touch-action:manipulation}
 .search-loc-lbl{font-size:12px;font-weight:500;color:var(--muted);white-space:nowrap}
 .search-loc-input{flex:1;border:none;background:transparent;font-size:13px;font-weight:600;color:var(--sky-deep);font-family:var(--font);min-width:0;padding:0}
 .search-loc-input::placeholder{color:var(--muted);font-weight:400;font-size:12px}
+/* planned-outing banner + plan sheet */
+.plan-banner{
+  display:flex;align-items:center;gap:12px;margin:14px 16px 0;padding:13px 14px;
+  background:var(--card);border:1px solid var(--luck);border-radius:var(--r-card);
+  box-shadow:0 0 0 3px var(--luck-soft);cursor:pointer;
+}
+.plan-icon{width:40px;height:40px;border-radius:13px;flex:0 0 40px;background:var(--luck-soft);color:var(--luck);display:flex;align-items:center;justify-content:center}
+.plan-icon svg{width:20px;height:20px}
+.plan-info{flex:1;min-width:0}
+.plan-title{font-weight:600;font-size:15px;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.plan-when{font-size:12.5px;font-weight:600;color:var(--luck);margin-top:2px}
+.plan-acts{display:flex;gap:6px}
+.plan-act{
+  width:36px;height:36px;border-radius:50%;flex:0 0 36px;
+  background:var(--sky-tint);border:1px solid var(--line);color:var(--sky-deep);
+  display:flex;align-items:center;justify-content:center;transition:transform .12s;
+}
+.plan-act:active{transform:scale(.92)}
+.plan-act svg{width:15px;height:15px}
+.plan-act#plan-clear{color:var(--muted)}
+.date-act.plan-cta{border-color:var(--luck);color:var(--luck)}
+.date-act.plan-cta:active{background:var(--luck-soft)}
+.plan-when-row{display:flex;gap:10px}
+.pl-travel{
+  margin-top:10px;padding:11px 13px;border-radius:var(--r-input);
+  background:var(--sky-tint);border:1px solid var(--line);
+  font-size:13.5px;font-weight:500;color:var(--ink-soft);
+}
+.pl-travel b{color:var(--ink);font-weight:700}
+.pl-note{font-size:11px;font-weight:600;color:var(--muted);margin-left:6px;text-transform:uppercase;letter-spacing:.04em}
 .sec-row{display:flex;align-items:center;justify-content:space-between;padding:20px 22px 10px}
 .sec-title{font-weight:600;font-size:16px;color:var(--ink);letter-spacing:.01em}
 .sec-count{font-size:12px;font-weight:500;color:var(--muted)}

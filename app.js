@@ -134,7 +134,7 @@ function loadLocal(){
   return null;
 }
 function save(){ HOUSEHOLD.set(S); saveLocal(); }
-function defaultState(){ return {name1:'Zac',name2:'Ella',setup:false,tasks:makeDefaultTasks(),completedLog:[],dates:{toVisit:[],visited:[],wheelLog:[],discoverSkips:[],discoverVetoes:[]},email1:'',email2:'',
+function defaultState(){ return {name1:'Zac',name2:'Ella',setup:false,tasks:makeDefaultTasks(),completedLog:[],dates:{toVisit:[],visited:[],wheelLog:[],discoverSkips:[],discoverVetoes:[],nextPlan:null},email1:'',email2:'',
   // Meal Prep week state — small + hot, so it lives in the main doc alongside
   // everything else. Saved recipes themselves go in a subcollection (stage 3+).
   mealPrep:{style:null, proteins:[], activeRecipeIds:[], grocery:[], dismissed:[], mealLog:[], loggedIds:[]}}; }
@@ -1532,6 +1532,8 @@ function normFsqPlace(p){
     rating: typeof p.rating === 'number' ? +p.rating.toFixed(1) : null,
     category: p.categories?.[0]?.name || '',
     highlyRated: !!p.highlyRated,
+    lat: typeof p.latitude === 'number' ? p.latitude : null,
+    lon: typeof p.longitude === 'number' ? p.longitude : null,
   };
 }
 // Duplicate check for a Foursquare place against a saved list: stable place
@@ -1629,6 +1631,23 @@ function renderDates(){
     </div>
     <div id="search-results-panel" class="search-results-panel"></div>`;
 
+  // Planned outing banner (tap to edit; cleared with the ✕ or by replanning)
+  const plan = S.dates.nextPlan;
+  if(plan && plan.when && new Date(plan.when).getTime() > Date.now() - 6*60*60*1000){
+    html += `<div class="plan-banner" id="plan-banner">
+      <div class="plan-icon"><i data-lucide="calendar-heart"></i></div>
+      <div class="plan-info">
+        <div class="plan-title">${escapeHtml(plan.name)}</div>
+        <div class="plan-when">${fmtPlanWhen(plan.when)}</div>
+      </div>
+      <div class="plan-acts">
+        <button class="plan-act" id="plan-dir" aria-label="Directions"><i data-lucide="navigation"></i></button>
+        <button class="plan-act" id="plan-cal" aria-label="Add to calendar"><i data-lucide="calendar-plus"></i></button>
+        <button class="plan-act" id="plan-clear" aria-label="Clear plan"><i data-lucide="x"></i></button>
+      </div>
+    </div>`;
+  }
+
   // To Visit
   html += `<div class="sec-row"><div class="sec-title">To Visit</div><span class="sec-count">${toVisit.length} places</span></div>`;
   if(!toVisit.length){
@@ -1711,6 +1730,28 @@ function renderDates(){
 
   const expBtn = document.getElementById('export-btn');
   if(expBtn) expBtn.onclick = exportVisited;
+
+  // Planned-outing banner actions
+  const planNow = S.dates.nextPlan;
+  if(planNow && document.getElementById('plan-banner')){
+    const planPlace = S.dates.toVisit.find(p=>p.id===planNow.placeId) || {name:planNow.name, address:planNow.address};
+    document.getElementById('plan-banner').addEventListener('click', e => {
+      if(e.target.closest('button')) return;
+      openPlanSheet(planPlace);
+    });
+    document.getElementById('plan-dir').onclick = ()=> window.open(mapsDirLink(planPlace, planNow.mode), '_blank');
+    document.getElementById('plan-cal').onclick = ()=> window.open(gcalDateLink(planPlace, planNow.when), '_blank');
+    document.getElementById('plan-clear').onclick = ()=>{
+      if(!confirm('Clear this planned date?')) return;
+      commitChange(state => { state.dates.nextPlan = null; });
+      renderDates();
+    };
+  }
+  // Plan action on the picked card
+  document.querySelectorAll('[data-plan-place]').forEach(btn => btn.addEventListener('click', ()=>{
+    const p = S.dates.toVisit.find(x=>x.id===btn.dataset.planPlace);
+    if(p) openPlanSheet(p);
+  }));
 }
 
 function toVisitCard(p){
@@ -1726,6 +1767,7 @@ function toVisitCard(p){
       </div>
     </div>
     <div class="date-actions">
+      ${p.picked ? `<button class="date-act plan-cta" data-plan-place="${p.id}"><i data-lucide="calendar-heart"></i>Plan it</button>` : ''}
       <button class="date-act visited-act" data-visit-it="${p.id}"><i data-lucide="star"></i>Mark visited</button>
       <button class="date-act" data-gsearch="${mapsQ}"><i data-lucide="search"></i>Google</button>
       <button class="date-act del-act" data-del-place="${p.id}"><i data-lucide="trash-2"></i>Remove</button>
@@ -1794,7 +1836,7 @@ async function fsqSearch(q){
           const badge = p.rating == null && p.highlyRated ? 'highly-rated' : null;
           commitChange(state => {
             if(dateSpotKnown(p, state.dates.toVisit)) return; // re-check against fresh state too
-            state.dates.toVisit.push({id:newId, fsqId:p.fsqId, name:p.name, address:p.address, rating:p.rating, badge, category:p.category, addedAt, picked:false});
+            state.dates.toVisit.push({id:newId, fsqId:p.fsqId, name:p.name, address:p.address, rating:p.rating, badge, category:p.category, lat:p.lat??null, lon:p.lon??null, addedAt, picked:false});
           });
         }
         panel.style.display='none';
@@ -1915,7 +1957,7 @@ async function openDiscoverDeck(){
     const newId = uid(), addedAt = Date.now();
     commitChange(state => {
       if(dateSpotKnown(p, state.dates.toVisit)) return;
-      state.dates.toVisit.push({id:newId, fsqId:p.fsqId, name:p.name, address:p.address, rating:p.rating, badge:p.badge || null, category:p.category, addedAt, picked:false});
+      state.dates.toVisit.push({id:newId, fsqId:p.fsqId, name:p.name, address:p.address, rating:p.rating, badge:p.badge || null, category:p.category, lat:p.lat??null, lon:p.lon??null, addedAt, picked:false});
     });
   }
 
@@ -2309,10 +2351,17 @@ function openWheelOverlay(places, practice=false){
         ${winner.address?`<div class="mbox-addr" data-maps="${escapeHtml(mapsQ)}"><i data-lucide="map-pin"></i>${escapeHtml(winner.address)}</div>`:''}
         <div class="mbox-btns">
           <button class="mbox-btn" id="wr-again-modal"><i data-lucide="shuffle"></i>Pick Again</button>
-          <button class="mbox-btn primary-btn" id="wr-go-modal"><i data-lucide="map-pin"></i>Let's go!</button>
+          <button class="mbox-btn" id="wr-go-modal"><i data-lucide="map-pin"></i>Maps</button>
+          <button class="mbox-btn primary-btn" id="wr-plan-modal"><i data-lucide="calendar-heart"></i>Plan it</button>
         </div>`,
       ()=>{
         document.getElementById('wr-go-modal').onclick=()=>{ window.open(mapsUrl,'_blank'); closeModal(); };
+        document.getElementById('wr-plan-modal').onclick=()=>{
+          closeModal();
+          // winner may be a stale reference after the commit above — re-find
+          const p = S.dates.toVisit.find(x=>x.id===winner.id) || winner;
+          openPlanSheet(p);
+        };
         document.getElementById('wr-again-modal').onclick=()=>{ closeModal(); openWheelOverlay(S.dates.toVisit); };
         document.querySelectorAll('[data-maps]').forEach(el=>el.addEventListener('click',()=>
           window.open('https://maps.google.com/?q='+encodeURIComponent(el.dataset.maps),'_blank')
@@ -2349,6 +2398,178 @@ function showPickModal(p){
     document.querySelectorAll('[data-maps]').forEach(el => el.addEventListener('click', ()=>
       window.open('https://maps.google.com/?q='+encodeURIComponent(el.dataset.maps),'_blank')
     ));
+  });
+}
+
+/* ── Plan-a-date: pick a time, see how far it is, hand off to Maps/Calendar ──
+   Travel estimates use the free FOSSGIS OSRM demo server (no key, CORS-open,
+   car + foot profiles) — good enough for "roughly how long", always labeled
+   an estimate. Actual navigation is a Google Maps deep link, same pattern as
+   the app's other maps links. Transit isn't available on any free router, so
+   the Maps handoff covers it. */
+
+// One geolocation fix per few minutes is plenty for an estimate.
+let _geoCache = null;
+function getGeo(){
+  if(_geoCache && Date.now() - _geoCache.ts < 5*60*1000) return Promise.resolve(_geoCache.pos);
+  return new Promise(resolve => {
+    if(!navigator.geolocation) return resolve(null);
+    navigator.geolocation.getCurrentPosition(
+      p => { _geoCache = {pos:{lat:p.coords.latitude, lon:p.coords.longitude}, ts:Date.now()}; resolve(_geoCache.pos); },
+      () => resolve(null),
+      {timeout:8000, maximumAge:300000}
+    );
+  });
+}
+
+// Venue coordinates: new saves carry lat/lon from Foursquare; legacy entries
+// fall back to a free Nominatim lookup, cached back onto the saved entry.
+async function geocodeSpot(place){
+  if(typeof place.lat === 'number' && typeof place.lon === 'number') return {lat:place.lat, lon:place.lon};
+  // Try the full "name, address" first; a venue Nominatim doesn't know by
+  // name still resolves by its street address alone.
+  const queries = [[place.name, place.address].filter(Boolean).join(', '), place.address].filter(Boolean);
+  for(const q of queries){
+    try{
+      const res = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=1`);
+      const d = await res.json();
+      if(d && d[0]){
+        const lat = +d[0].lat, lon = +d[0].lon;
+        if(place.id) commitChange(state => {
+          const p = (state.dates.toVisit||[]).find(x=>x.id===place.id);
+          if(p){ p.lat = lat; p.lon = lon; }
+        });
+        return {lat, lon};
+      }
+    }catch(e){}
+  }
+  return null;
+}
+
+function haversineKm(a, b){
+  const R = 6371, rad = x => x*Math.PI/180;
+  const dLat = rad(b.lat-a.lat), dLon = rad(b.lon-a.lon);
+  const h = Math.sin(dLat/2)**2 + Math.cos(rad(a.lat))*Math.cos(rad(b.lat))*Math.sin(dLon/2)**2;
+  return 2*R*Math.asin(Math.sqrt(h));
+}
+
+async function osrmEstimate(from, to, mode){
+  const profile = mode==='walk' ? 'routed-foot' : 'routed-car';
+  const url = `https://routing.openstreetmap.de/${profile}/route/v1/driving/${from.lon},${from.lat};${to.lon},${to.lat}?overview=false`;
+  const controller = new AbortController();
+  const tid = setTimeout(()=>controller.abort(), 8000);
+  try{
+    const d = await fetch(url, {signal:controller.signal}).then(r=>r.json());
+    if(d.code === 'Ok' && d.routes?.[0]){
+      return {min: Math.max(1, Math.round(d.routes[0].duration/60)), km: +(d.routes[0].distance/1000).toFixed(1)};
+    }
+  }catch(e){}
+  finally{ clearTimeout(tid); }
+  return null;
+}
+
+function fmtMins(min){
+  return min >= 60 ? `${Math.floor(min/60)} h ${min%60 ? (min%60)+' min' : ''}`.trim() : `${min} min`;
+}
+function fmtPlanWhen(when){
+  const d = new Date(when);
+  if(isNaN(d)) return when;
+  return d.toLocaleDateString('en-AU',{weekday:'short', day:'numeric', month:'short'}) + ' · ' +
+         d.toLocaleTimeString('en-AU',{hour:'numeric', minute:'2-digit'});
+}
+function mapsDirLink(place, mode){
+  return 'https://www.google.com/maps/dir/?api=1'
+    + '&destination=' + encodeURIComponent(`${place.name} ${place.address||''}`.trim())
+    + '&travelmode=' + (mode==='walk' ? 'walking' : 'driving');
+}
+function gcalDateLink(place, when){
+  const start = new Date(when);
+  if(isNaN(start)) return null;
+  const end = new Date(start.getTime() + 2*60*60*1000);
+  const f = d => d.getFullYear() + String(d.getMonth()+1).padStart(2,'0') + String(d.getDate()).padStart(2,'0')
+    + 'T' + String(d.getHours()).padStart(2,'0') + String(d.getMinutes()).padStart(2,'0') + '00';
+  return 'https://calendar.google.com/calendar/render?action=TEMPLATE'
+    + '&text=' + encodeURIComponent('Date night: ' + place.name)
+    + '&dates=' + f(start) + '/' + f(end)
+    + (place.address ? '&location=' + encodeURIComponent(`${place.name}, ${place.address}`) : '');
+}
+
+function openPlanSheet(place){
+  if(!place) return;
+  const existing = S.dates.nextPlan && (S.dates.nextPlan.placeId === place.id || normKey(S.dates.nextPlan.name||'') === normKey(place.name||'')) ? S.dates.nextPlan : null;
+  const d0 = new Date();
+  d0.setDate(d0.getDate() + (6 - d0.getDay() + 7) % 7); // coming Saturday (today if Sat)
+  const defWhen = existing?.when || (toLocalYMD(d0) + 'T19:00');
+  const [defDate, defTime] = defWhen.split('T');
+  let mode = existing?.mode || (lsGet('ht-travel-mode') === 'walk' ? 'walk' : 'drive');
+
+  openSheet(`
+    <div class="grabber"></div>
+    <div class="sheet-head">
+      <div class="sheet-title">Plan the date</div>
+      <button class="sheet-close" id="sh-close"><i data-lucide="x"></i></button>
+    </div>
+    <div style="text-align:center;font-size:18px;font-weight:600;color:var(--ink);padding:2px 0 0">${escapeHtml(place.name)}</div>
+    ${place.address ? `<div style="text-align:center;font-size:12.5px;font-weight:500;color:var(--muted);margin-top:-6px">${escapeHtml(place.address)}</div>` : ''}
+    <div class="plan-when-row">
+      <div style="flex:1.4"><div class="seg-lbl">Date</div><input class="sheet-date-input" id="pl-date" type="date" value="${defDate}"></div>
+      <div style="flex:1"><div class="seg-lbl">Time</div><input class="sheet-date-input" id="pl-time" type="time" value="${defTime}"></div>
+    </div>
+    <div>
+      <div class="seg-lbl">Getting there</div>
+      <div class="chips">
+        <div class="chip ${mode==='drive'?'sel':''}" data-pl-mode="drive"><i data-lucide="car"></i>&nbsp;Drive</div>
+        <div class="chip ${mode==='walk'?'sel':''}" data-pl-mode="walk"><i data-lucide="footprints"></i>&nbsp;Walk</div>
+      </div>
+      <div class="pl-travel" id="pl-travel">Estimating…</div>
+    </div>
+    <div class="detail-btns">
+      <button class="detail-btn" id="pl-dir"><i data-lucide="navigation"></i>Directions</button>
+      <button class="detail-btn" id="pl-cal"><i data-lucide="calendar-plus"></i>Calendar</button>
+    </div>
+    <button class="btn-primary" id="pl-save"><i data-lucide="check"></i>Save plan</button>`,
+  ()=>{
+    document.getElementById('sh-close').onclick = closeSheet;
+    let myPos = null, spotPos = null;
+    const getWhen = ()=>{
+      const dt = document.getElementById('pl-date').value;
+      const tm = document.getElementById('pl-time').value || '19:00';
+      return dt ? dt + 'T' + tm : null;
+    };
+    async function updateEstimate(){
+      const el = document.getElementById('pl-travel'); if(!el) return;
+      el.textContent = 'Estimating…';
+      if(!spotPos) spotPos = await geocodeSpot(place);
+      if(!myPos) myPos = await getGeo();
+      const el2 = document.getElementById('pl-travel'); if(!el2) return; // sheet closed meanwhile
+      if(!spotPos){ el2.textContent = "Couldn't pinpoint the venue — Directions below still works."; return; }
+      if(!myPos){ el2.textContent = 'Allow location access for a travel estimate.'; return; }
+      const est = await osrmEstimate(myPos, spotPos, mode);
+      const el3 = document.getElementById('pl-travel'); if(!el3) return;
+      if(est) el3.innerHTML = `≈ <b>${fmtMins(est.min)}</b> ${mode==='walk'?'walk':'drive'} · ${est.km} km <span class="pl-note">estimate</span>`;
+      else el3.innerHTML = `≈ ${haversineKm(myPos, spotPos).toFixed(1)} km away <span class="pl-note">straight line — route service unreachable</span>`;
+    }
+    document.querySelectorAll('[data-pl-mode]').forEach(el => el.addEventListener('click', ()=>{
+      mode = el.dataset.plMode;
+      lsSet('ht-travel-mode', mode);
+      document.querySelectorAll('[data-pl-mode]').forEach(e => e.classList.toggle('sel', e===el));
+      updateEstimate();
+    }));
+    document.getElementById('pl-dir').onclick = ()=> window.open(mapsDirLink(place, mode), '_blank');
+    document.getElementById('pl-cal').onclick = ()=>{
+      const when = getWhen();
+      if(!when){ document.getElementById('pl-date').focus(); return; }
+      window.open(gcalDateLink(place, when), '_blank');
+    };
+    document.getElementById('pl-save').onclick = ()=>{
+      const when = getWhen();
+      if(!when){ document.getElementById('pl-date').focus(); return; }
+      const plan = {placeId: place.id || null, name: place.name, address: place.address || '', when, mode, createdAt: Date.now()};
+      commitChange(state => { state.dates.nextPlan = plan; });
+      closeSheet(); renderDates();
+      showToast(`Planned: ${place.name}`);
+    };
+    updateEstimate();
   });
 }
 

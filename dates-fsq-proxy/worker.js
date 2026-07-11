@@ -71,7 +71,9 @@ function scopeCategories(scope) {
   return CAT_DATE_SPOTS;
 }
 const NOT_A_DATE_SPOT = /memorial|monument|cemeter|stadium|sports/i;
-const FIELDS_CORE = 'fsq_place_id,name,categories,location';
+// latitude/longitude power the app's travel-time estimate (OSRM) — exact
+// venue coords beat re-geocoding the address client-side.
+const FIELDS_CORE = 'fsq_place_id,name,categories,location,latitude,longitude';
 const FIELDS_PRO  = FIELDS_CORE + ',rating';
 
 const ALLOWED_ORIGIN = '*';
