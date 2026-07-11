@@ -2479,37 +2479,6 @@ function openWheelOverlay(places, practice=false){
     }, 700);
   }
 }
-function showPickModal(p){
-  const mapsQ = `${p.name} ${p.address||''}`.trim();
-  const mapsUrl = `https://maps.google.com/?q=${encodeURIComponent(mapsQ)}`;
-  openModal(`
-    <div class="mbox-icon"><i data-lucide="heart"></i></div>
-    <div class="mbox-title">${p.name}</div>
-    <div class="mbox-sub">Next Date!</div>
-    ${p.address ? `<div class="mbox-addr" data-maps="${mapsQ}"><i data-lucide="map-pin"></i>${p.address}</div>` : ''}
-    <div class="mbox-btns">
-      <button class="mbox-btn" id="pick-again"><i data-lucide="shuffle"></i>Pick Again</button>
-      <button class="mbox-btn primary-btn" id="lets-go"><i data-lucide="map-pin"></i>Let's go!</button>
-    </div>`,
-  ()=>{
-    document.getElementById('lets-go').onclick = () => { window.open(mapsUrl,'_blank'); closeModal(); };
-    document.getElementById('pick-again').onclick = () => {
-      closeModal();
-      const others = S.dates.toVisit.filter(x=>x.id!==p.id);
-      if(!others.length){ alert('Only one place in your list!'); return; }
-      const next = others[Math.floor(Math.random()*others.length)];
-      S.dates.toVisit.forEach(x=>x.picked=false);
-      next.picked=true;
-      const idx = S.dates.toVisit.findIndex(x=>x.id===next.id);
-      if(idx>0){ S.dates.toVisit.splice(idx,1); S.dates.toVisit.unshift(next); }
-      save(); showPickModal(next);
-    };
-    document.querySelectorAll('[data-maps]').forEach(el => el.addEventListener('click', ()=>
-      window.open('https://maps.google.com/?q='+encodeURIComponent(el.dataset.maps),'_blank')
-    ));
-  });
-}
-
 /* ── Plan-a-date: pick a time, see how far it is, hand off to Maps/Calendar ──
    Travel estimates use the free FOSSGIS OSRM demo server (no key, CORS-open,
    car + foot profiles) — good enough for "roughly how long", always labeled
@@ -2957,62 +2926,6 @@ function openVetoSheet(){
     }
     bind();
   });
-}
-
-/* ════════════════════════════════════════ ROOMS TAB */
-function renderRooms(){
-  currentRoomDetail = null;
-  document.getElementById('hdr').innerHTML = `
-    <div class="flat-hdr">
-      <div><div class="flat-hdr-title">Rooms</div><div class="flat-hdr-sub">Tasks by area</div></div>
-      <div class="flat-hdr-icon"><i data-lucide="layout-grid"></i></div>
-    </div>`;
-  let html = '<div class="room-grid">';
-  ROOM_CHIPS.forEach(room => {
-    const count = S.tasks.filter(t=>t.room===room.name).length;
-    html += `<div class="room-tile" data-room-nav="${room.name}">
-      <div class="room-badge ${count===0?'zero':''}">${count}</div>
-      <div class="room-tile-icon"><i data-lucide="${room.icon}"></i></div>
-      <div class="room-tile-name">${room.name}</div>
-    </div>`;
-  });
-  html += '</div>';
-  setPanelHTML(html);
-  lucide.createIcons();
-  document.querySelectorAll('[data-room-nav]').forEach(tile=>{
-    tile.addEventListener('click',()=>renderRoomDetail(tile.dataset.roomNav));
-  });
-}
-function renderRoomDetail(roomName){
-  currentRoomDetail = roomName;
-  const room = ROOM_CHIPS.find(r=>r.name===roomName);
-  const tasks = S.tasks.filter(t=>t.room===roomName).sort((a,b)=>a.dueDate.localeCompare(b.dueDate));
-  const t = todayStr();
-  let html = `<button class="room-back" id="room-back-btn"><i data-lucide="arrow-left"></i>Rooms</button>`;
-  if(!tasks.length){
-    html += `<div class="empty-state"><i data-lucide="${room?room.icon:'layout-grid'}"></i><p>No tasks in ${roomName}</p></div>`;
-  } else {
-    const overdue   = tasks.filter(x=>x.dueDate<t);
-    const upcoming  = tasks.filter(x=>x.dueDate>=t);
-    if(overdue.length){
-      html += `<div class="day-header"><div class="day-label" style="color:var(--red)">Overdue</div></div>`;
-      overdue.forEach(x=>{html+=taskCardHTML(x);});
-    }
-    upcoming.forEach(x=>{html+=taskCardHTML(x);});
-  }
-  setPanelHTML(html);
-  lucide.createIcons();
-  document.getElementById('room-back-btn').onclick=()=>renderRooms();
-  document.querySelectorAll('[data-done]').forEach(btn=>btn.addEventListener('click',e=>{
-    e.stopPropagation(); completeTask(btn.dataset.done);
-  }));
-  document.querySelectorAll('[data-skip]').forEach(btn=>btn.addEventListener('click',e=>{
-    e.stopPropagation(); skipTask(btn.dataset.skip);
-  }));
-  document.querySelectorAll('[data-task-card]').forEach(card=>card.addEventListener('click',e=>{
-    if(e.target.closest('button,a')) return;
-    openTaskDetail(card.dataset.taskCard);
-  }));
 }
 
 /* ════════════════════════════════════════ SHEET / MODAL HELPERS */
