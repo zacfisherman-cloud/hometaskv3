@@ -491,7 +491,7 @@ function histEntryHTML(l){
       <div class="he-name">${escapeHtml(l.name)}</div>
       <div class="he-meta">
         <span class="hi-diff ${dc}">${l.difficulty||'Easy'}</span>
-        <span class="he-who"><i data-lucide="user"></i>${escapeHtml(l.assignee||'')}</span>
+        <span class="he-who"><i data-lucide="user"></i>${escapeHtml(l.completedBy || l.assignee || '')}</span>
         ${l.isDeepClean?'<span class="he-dc"><i data-lucide="sparkles"></i></span>':''}
       </div>
     </div>
@@ -762,7 +762,7 @@ function completeTask(id){
     state.completedLog.push({
       id:logId, taskId:id, name:task.name,
       completedAt, prevDueDate:task.dueDate, difficulty:task.difficulty,
-      assignee:task.assignee, isDeepClean:task.isDeepClean
+      assignee:task.assignee, completedBy:myName(), isDeepClean:task.isDeepClean
     });
     task.dueDate = addDays(task.dueDate, getFreqDays(task));
   });
@@ -1083,13 +1083,19 @@ function openTaskDetail(id){
 }
 
 /* ════════════════════════════════════════ HISTORY TAB */
+// Who gets personal credit for a log entry: completedBy (who actually tapped
+// Done) when recorded; legacy entries fall back to the old assignee rule,
+// where 'Both' credited both people.
+function creditedTo(l, name){
+  return l.completedBy ? l.completedBy === name : (l.assignee === name || l.assignee === 'Both');
+}
 function histItem(l){
   const dc = {Easy:'hi-easy', Medium:'hi-medium', Hard:'hi-hard'}[l.difficulty]||'hi-easy';
   return `<div class="hist-item">
     <i data-lucide="check-circle-2" style="color:var(--green)"></i>
     <span class="hi-name">${escapeHtml(l.name)}</span>
     <span class="hi-diff ${dc}">${l.difficulty}</span>
-    <span style="font-size:11.5px;font-weight:700;color:var(--muted)">${escapeHtml(l.assignee)}</span>
+    <span style="font-size:11.5px;font-weight:700;color:var(--muted)">${escapeHtml(l.completedBy || l.assignee)}</span>
   </div>`;
 }
 
@@ -1138,17 +1144,17 @@ function _statsTasksHTML(){
   const monthStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
 
   /* ── helpers ── */
-  function mineLog(name){ return log.filter(l => l.assignee===name || l.assignee==='Both'); }
+  function mineLog(name){ return log.filter(l => creditedTo(l, name)); }
 
   function calcStreak(name){
     // If nothing done this week, start counting from last week so Monday mornings don't kill the streak
-    const curHas = log.some(l => (l.assignee===name||l.assignee==='Both') && l.completedAt>=ws && l.completedAt<=addDays(ws,6));
+    const curHas = log.some(l => creditedTo(l, name) && l.completedAt>=ws && l.completedAt<=addDays(ws,6));
     const start  = curHas ? 0 : 1;
     let streak = 0;
     for(let i=start; i<52; i++){
       const d  = new Date(ws+'T00:00:00'); d.setDate(d.getDate() - i*7);
       const wS = toLocalYMD(d), wE = addDays(wS,6);
-      const has = log.some(l => (l.assignee===name||l.assignee==='Both') && l.completedAt>=wS && l.completedAt<=wE);
+      const has = log.some(l => creditedTo(l, name) && l.completedAt>=wS && l.completedAt<=wE);
       if(has) streak++; else break;
     }
     return streak;
