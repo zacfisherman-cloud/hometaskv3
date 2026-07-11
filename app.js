@@ -795,12 +795,32 @@ function completeTask(id){
   showToast(`${taskName} done`, 'Undo', ()=>applyRestore(logId));
 }
 function skipTask(id){
-  if(!S.tasks.find(t=>t.id===id)) return;
-  commitChange(state => {
-    const task = state.tasks.find(t=>t.id===id); if(!task) return;
-    task.dueDate = addDays(task.dueDate, getFreqDays(task));
+  const task = S.tasks.find(t=>t.id===id); if(!task) return;
+  const doSkip = kind => {
+    commitChange(state => {
+      const t = state.tasks.find(x=>x.id===id); if(!t) return;
+      // "tomorrow" means tomorrow from TODAY (the point of a nudge on an
+      // overdue task); "next cycle" keeps the schedule-preserving old rule.
+      t.dueDate = kind==='day' ? addDays(todayStr(), 1) : addDays(t.dueDate, getFreqDays(t));
+    });
+    closeModal(); renderTasks();
+  };
+  // One-offs have no cycle — tomorrow is the only sensible skip.
+  if(task.frequency === 'once'){ doSkip('day'); return; }
+  openModal(`
+    <div class="mbox-icon" style="background:var(--gold-soft)"><i data-lucide="skip-forward" style="color:var(--gold)"></i></div>
+    <div class="mbox-title">Skip “${escapeHtml(task.name)}”</div>
+    <div class="mbox-sub">Try again tomorrow, or push it a full cycle?</div>
+    <div class="mbox-btns">
+      <button class="mbox-btn" id="skip-cycle"><i data-lucide="fast-forward"></i>+${getFreqDays(task)} days</button>
+      <button class="mbox-btn primary-btn" id="skip-day"><i data-lucide="sunrise"></i>Tomorrow</button>
+    </div>`,
+  ()=>{
+    document.getElementById('skip-day').onclick   = ()=> doSkip('day');
+    document.getElementById('skip-cycle').onclick = ()=> doSkip('cycle');
+    // dismissing without choosing must bring a swiped-away card back
+    document.getElementById('mdim').onclick = ()=>{ closeModal(); renderTasks(); };
   });
-  renderTasks();
 }
 
 /* ── Add task sheet ──────────────────────────────── */
