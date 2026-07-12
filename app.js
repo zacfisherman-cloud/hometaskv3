@@ -3368,6 +3368,14 @@ function regenerateGrocery(state, extraById){
   desired.forEach((d, gk) => {
     if(mp.dismissed.includes(gk)) return;
     const prev = oldByGk[gk];
+    if(prev && prev.edited){
+      // A hand-edited line keeps the user's name/qty/unit across rebuilds —
+      // "actually 3 onions" must survive adding another recipe. It keeps its
+      // gk/sources link so labels and meal-completion logic still work, and
+      // it leaves the list normally when its recipes do.
+      next.push({...prev, sources: d.sources, conflict: conflictKeys.has(gk.split('|')[0])});
+      return;
+    }
     next.push({
       id: prev ? prev.id : uid(), gk, manual: false,
       name: d.name, qty: d.qty, unit: d.unit, sources: d.sources,
@@ -3388,9 +3396,10 @@ function regenerateGrocery(state, extraById){
 function _grocerySrcLabel(item){
   if(item.manual) return 'added manually';
   const names = (item.sources || []).map(id => mealRecipes.find(r => r.id === id)?.name).filter(Boolean);
-  if(!names.length) return 'from a removed recipe';
-  if(names.length === 1) return names[0];
-  return `${names[0]} +${names.length - 1} more`;
+  const base = !names.length ? 'from a removed recipe'
+    : names.length === 1 ? names[0]
+    : `${names[0]} +${names.length - 1} more`;
+  return item.edited ? base + ' · edited' : base;
 }
 function _groceryViewHTML(mp){
   const items = mp.grocery || [];
@@ -3415,8 +3424,8 @@ function _groceryViewHTML(mp){
         <div class="g-name">${escapeHtml(it.name)}</div>
         <div class="g-src">${escapeHtml(_grocerySrcLabel(it))}</div>
       </div>
-      ${it.conflict && !it.checked ? '<span class="g-flag">units differ</span>' : ''}
-      <div class="g-qty">${escapeHtml(prettyQty(it.qty, it.unit))}</div>
+      ${it.conflict && !it.checked && !it.edited ? '<span class="g-flag">units differ</span>' : ''}
+      <button class="g-qty" data-g-edit="${it.id}" aria-label="Edit item">${escapeHtml(prettyQty(it.qty, it.unit)) || '<i data-lucide="pencil"></i>'}</button>
       <button class="g-del" data-g-del="${it.id}" aria-label="Remove">✕</button>
     </div>`;
   });
@@ -3425,7 +3434,7 @@ function _groceryViewHTML(mp){
 }
 function _bindGroceryHandlers(mp){
   document.querySelectorAll('[data-g-toggle]').forEach(el => el.addEventListener('click', e => {
-    if(e.target.closest('[data-g-del]')) return;
+    if(e.target.closest('[data-g-del]') || e.target.closest('[data-g-edit]')) return;
     const id = el.dataset.gToggle;
     commitChange(state => {
       const it = (state.mealPrep.grocery || []).find(g => g.id === id);
@@ -3449,28 +3458,41 @@ function _bindGroceryHandlers(mp){
     });
     renderMeals();
   }));
+  document.querySelectorAll('[data-g-edit]').forEach(el => el.addEventListener('click', e => {
+    e.stopPropagation();
+    openGroceryItemSheet(el.dataset.gEdit);
+  }));
   const add = document.getElementById('g-add') || document.getElementById('g-add-empty');
-  if(add) add.onclick = openAddGroceryItemSheet;
+  if(add) add.onclick = ()=> openGroceryItemSheet(null);
 }
-function openAddGroceryItemSheet(){
+// One sheet adds a manual item (itemId null) or edits any existing line in
+// place. Editing a recipe-derived line flags it `edited`: regenerateGrocery
+// then preserves the user's values instead of recomputing them, while the
+// line keeps its recipe link (source label, meal-completion tracking) and
+// still leaves the list when its recipes do.
+function openGroceryItemSheet(itemId){
+  const existing = itemId ? (S.mealPrep.grocery || []).find(g => g.id === itemId) : null;
+  if(itemId && !existing) return;
+  const qtyVal = existing?.qty != null ? String(existing.qty) : '';
   openSheet(`
     <div class="grabber"></div>
     <div class="sheet-head">
-      <div class="sheet-title">Add item</div>
+      <div class="sheet-title">${existing ? 'Edit item' : 'Add item'}</div>
       <button class="sheet-close" id="sh-close"><i data-lucide="x"></i></button>
     </div>
+    ${existing && !existing.manual ? `<div class="toggle-sub" style="margin:-6px 2px 0">From ${escapeHtml(_grocerySrcLabel({...existing, edited:false}))} — your edit sticks even as recipes change.</div>` : ''}
     <div class="seg-lbl" style="margin-bottom:6px">Item</div>
-    <input class="plain-input" id="gi-name" placeholder="Paper towels, coffee…">
+    <input class="plain-input" id="gi-name" placeholder="Paper towels, coffee…" value="${escapeHtml(existing?.name || '')}">
     <div style="display:flex;gap:10px">
       <div style="flex:1"><div class="seg-lbl" style="margin-bottom:6px">Qty <span style="text-transform:none;letter-spacing:0">(optional)</span></div>
-        <input class="plain-input" id="gi-qty" type="number" min="0" step="any"></div>
+        <input class="plain-input" id="gi-qty" type="number" min="0" step="any" value="${escapeHtml(qtyVal)}"></div>
       <div style="flex:1"><div class="seg-lbl" style="margin-bottom:6px">Unit <span style="text-transform:none;letter-spacing:0">(optional)</span></div>
-        <input class="plain-input" id="gi-unit" placeholder="g, pack…"></div>
+        <input class="plain-input" id="gi-unit" placeholder="g, pack…" value="${escapeHtml(existing?.unit || '')}"></div>
     </div>
-    <button class="btn-primary" id="gi-save"><i data-lucide="check"></i>Add to list</button>`,
+    <button class="btn-primary" id="gi-save"><i data-lucide="check"></i>${existing ? 'Save changes' : 'Add to list'}</button>`,
   ()=>{
     document.getElementById('sh-close').onclick = closeSheet;
-    document.getElementById('gi-name').focus();
+    if(!existing) document.getElementById('gi-name').focus();
     document.getElementById('gi-save').onclick = ()=>{
       const name = document.getElementById('gi-name').value.trim();
       if(!name){ document.getElementById('gi-name').focus(); return; }
@@ -3479,10 +3501,15 @@ function openAddGroceryItemSheet(){
       let unit = normUnit(document.getElementById('gi-unit').value.trim());
       if(qty != null && unit === 'kg'){ qty *= 1000; unit = 'g'; }
       if(qty != null && unit === 'l'){ qty *= 1000; unit = 'ml'; }
-      const item = {id: uid(), gk: 'manual|' + uid(), manual: true, name, qty, unit: qty == null ? null : unit, sources: [], conflict: false, checked: false};
       commitChange(state => {
         state.mealPrep.grocery = state.mealPrep.grocery || [];
-        state.mealPrep.grocery.push(item);
+        if(existing){
+          const it = state.mealPrep.grocery.find(g => g.id === itemId); if(!it) return;
+          it.name = name; it.qty = qty; it.unit = qty == null ? null : unit;
+          if(!it.manual) it.edited = true;
+        } else {
+          state.mealPrep.grocery.push({id: uid(), gk: 'manual|' + uid(), manual: true, name, qty, unit: qty == null ? null : unit, sources: [], conflict: false, checked: false});
+        }
         state.mealPrep.grocery.sort(grocerySort);
       });
       closeSheet(); renderMeals();
