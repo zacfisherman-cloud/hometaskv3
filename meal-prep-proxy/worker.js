@@ -10,17 +10,23 @@
  *                  → { recipe: {name, protein, proteinIsNew, serves, minutes,
  *                               ingredients:[{qty,unit,item}], steps:[]},
  *                      via: "ai" | "ai-retry" | "heuristic" }
- *   POST /fetch    { url }
- *                  → { text, via: "jsonld" | "html", title? }
- *   POST /suggest  { styleName, proteins: [], existingRecipeNames: [] }
- *                  → { recipes: [{name, protein, serves, minutes, summary,
- *                                 ingredients:[{qty,unit,item}], steps:[]}] }
- *   OPTIONS *      — CORS preflight
+ *   POST /fetch       { url }
+ *                     → { text, via: "jsonld" | "html", title? }
+ *   POST /parse-image { imageBase64, existingProteins: [] }
+ *                     → same shape as /parse (vision transcription piped
+ *                       through the exact same structuring pipeline)
+ *   POST /suggest     { styleName, proteins: [], existingRecipeNames: [] }
+ *                     → { recipes: [{name, protein, serves, minutes, summary,
+ *                                    ingredients:[{qty,unit,item}], steps:[]}] }
+ *   OPTIONS *         — CORS preflight
  *
- * Model: llama-3.3-70b-instruct-fp8-fast — the 3.1-8b base model was
+ * Text model: llama-3.3-70b-instruct-fp8-fast — the 3.1-8b base model was
  * deprecated by Cloudflare on 2026-05-30 (caught in live testing); the 70b
  * fp8-fast build has far better strict-JSON discipline and still fits the
  * free daily allocation comfortably for a two-person household.
+ * Vision model (/parse-image only): llava-1.5-7b-hf — image captioning, not
+ * OCR; used only to get rough text off a photo, structured by the same
+ * pipeline as pasted text (see handleParseImage).
  */
 
 const MODEL = '@cf/meta/llama-3.3-70b-instruct-fp8-fast';
@@ -294,6 +300,54 @@ Rules: protein is the single main protein tag. qty is a plain number or null (co
   return json(200, { recipe: { ...recipe, proteinIsNew }, via: source });
 }
 
+/* ── /parse-image: photo → rough text transcription → same /parse pipeline ──
+   llava-1.5-7b-hf is a captioning model, not an OCR engine — it paraphrases
+   more than it literally transcribes, so this is honestly a rougher starting
+   point than pasted text. It only does ONE job (get *some* text off the
+   photo); the proven /parse structuring logic (retry, sanitizers, heuristic
+   fallback) does the rest, and the same review-before-save sheet every other
+   entry path uses is where a human catches whatever the model missed. */
+async function handleParseImage(env, body) {
+  const imageBase64 = str(body?.imageBase64, 15000000);
+  if (!imageBase64) return jsonError(400, 'No image provided');
+  const existing = Array.isArray(body?.existingProteins) ? body.existingProteins.slice(0, 40).map(p => str(p, 40)).filter(Boolean) : [];
+
+  let bytes;
+  try {
+    const b64 = imageBase64.replace(/^data:[^,]+,/, '');
+    const bin = atob(b64);
+    bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  } catch (e) {
+    return jsonError(400, 'Image data could not be decoded');
+  }
+  if (bytes.length > 11000000) return jsonError(413, 'Photo is too large — try a smaller or less detailed shot');
+
+  // NOTE (live-tested 2026-07-13): llama-3.2-11b-vision-instruct is
+  // instruction-tuned and would very likely transcribe far more accurately
+  // than a pure captioner, but Workers AI gates it behind a one-time Meta
+  // license acceptance tied to the Cloudflare account (send {prompt:"agree"}
+  // to it once — see model docs). That's a legal acceptance on the account
+  // owner's behalf, not something to do automatically. If accepted later,
+  // swap the model call below to the messages format and this endpoint's
+  // transcription quality should improve substantially.
+  let caption;
+  try {
+    const res = await env.AI.run('@cf/llava-hf/llava-1.5-7b-hf', {
+      image: [...bytes],
+      prompt: 'Transcribe every word of readable text in this recipe photo exactly as written: the title, every ingredient with its exact quantity, and every numbered step. Do not summarize or paraphrase — copy the text verbatim, line by line.',
+      max_tokens: 1024,
+    });
+    caption = typeof res?.description === 'string' ? res.description : '';
+  } catch (e) {
+    return jsonError(502, `Photo transcription failed: ${e.message}`);
+  }
+  if (!caption || caption.trim().length < 20) {
+    return jsonError(422, "Couldn't read enough text from that photo — try a clearer, closer shot, or paste the text instead");
+  }
+  return await handleParse(env, { text: caption, existingProteins: existing });
+}
+
 async function handleSuggest(env, body) {
   const styleName = str(body?.styleName, 60) || 'weeknight meal prep';
   const proteins = Array.isArray(body?.proteins) ? body.proteins.slice(0, 3).map(p => str(p, 40)).filter(Boolean) : [];
@@ -344,10 +398,11 @@ export default {
     try { body = await request.json(); } catch { return jsonError(400, 'Body must be JSON'); }
     const path = new URL(request.url).pathname;
     try {
-      if (path === '/fetch')   return await handleFetch(env, body);
-      if (path === '/parse')   return await handleParse(env, body);
-      if (path === '/suggest') return await handleSuggest(env, body);
-      return jsonError(404, 'Not found — use /fetch, /parse or /suggest');
+      if (path === '/fetch')       return await handleFetch(env, body);
+      if (path === '/parse')       return await handleParse(env, body);
+      if (path === '/parse-image') return await handleParseImage(env, body);
+      if (path === '/suggest')     return await handleSuggest(env, body);
+      return jsonError(404, 'Not found — use /fetch, /parse, /parse-image or /suggest');
     } catch (e) {
       return jsonError(502, `Workers AI call failed: ${e.message}`);
     }

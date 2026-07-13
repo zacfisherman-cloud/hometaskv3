@@ -139,7 +139,7 @@ function save(){ HOUSEHOLD.set(S); saveLocal(); }
 function defaultState(){ return {name1:'Zac',name2:'Ella',setup:false,tasks:makeDefaultTasks(),completedLog:[],dates:{toVisit:[],visited:[],wheelLog:[],discoverSkips:[],discoverVetoes:[],nextPlan:null},email1:'',email2:'',
   // Meal Prep week state — small + hot, so it lives in the main doc alongside
   // everything else. Saved recipes themselves go in a subcollection (stage 3+).
-  mealPrep:{style:null, proteins:[], activeRecipeIds:[], grocery:[], dismissed:[], mealLog:[], loggedIds:[]}}; }
+  mealPrep:{style:null, proteins:[], activeRecipeIds:[], grocery:[], dismissed:[], mealLog:[], loggedIds:[], recipeScale:{}, recipeDay:{}}}; }
 
 // Deep-merges `source` onto `defaults` — a missing nested field (e.g. a
 // legacy doc without dates.visited) falls back to its default instead of
@@ -1434,8 +1434,9 @@ function _statsTasksHTML(){
 }
 
 /* ── Stats · Meals: ranked proteins + meals from mealLog. A meal counts as
-   eaten only once ALL its grocery lines were checked while it was still in
-   the week's set (see recordMealCompletions). ── */
+   cooked only when explicitly logged via "Cooked it" (markRecipeCooked) —
+   deliberately NOT inferred from grocery checkboxes, which measure shopping
+   ("bought the ingredients") rather than cooking. ── */
 function _statsMealsHTML(){
   const log = (S.mealPrep?.mealLog) || [];
   const periodChips = `<div class="pk-row" style="padding:2px 16px 0">
@@ -1446,7 +1447,7 @@ function _statsMealsHTML(){
     return periodChips + `<div class="empty-state">
       <i data-lucide="chef-hat"></i>
       <div class="es-title">No meals logged yet</div>
-      <p>A meal counts once all of its grocery lines are checked off — plan a week and get shopping.</p>
+      <p>Tap "Cooked it" on a recipe in your week's set once you've made it.</p>
     </div>`;
   }
   const now = new Date();
@@ -1475,7 +1476,7 @@ function _statsMealsHTML(){
   return periodChips
     + rankedHTML('Most-eaten proteins', e => e.protein)
     + rankedHTML('Most-eaten meals', e => e.name)
-    + `<div style="text-align:center;font-size:11px;color:var(--muted);padding:14px 32px 8px">Counted when every grocery line for the recipe was checked off.</div>`;
+    + `<div style="text-align:center;font-size:11px;color:var(--muted);padding:14px 32px 8px">Counted each time you tap "Cooked it" on a recipe.</div>`;
 }
 
 /* ── Stats · Dates: derived from dates.visited / toVisit / wheelLog ── */
@@ -2960,6 +2961,7 @@ function openSheet(html, cb){
   document.getElementById('dim').onclick = closeSheet;
 }
 function closeSheet(){
+  releaseWakeLock(); // no-op unless a recipe-view cook session requested one
   document.getElementById('overlay').classList.add('hidden');
   document.getElementById('sheet').innerHTML='';
 }
@@ -3034,11 +3036,13 @@ function startRecipesSync(){
     if(currentTab === 'meals') renderMeals();
   }, err => console.error('Recipes sync error:', err));
 }
-function savedMatches(mp){
+function proteinOnlyMatches(mp){
   const keys = mp.proteins.map(normalizeProtein);
-  return mealRecipes.filter(r =>
-    (!keys.length || keys.includes(normalizeProtein(r.protein || ''))) &&
-    (!Array.isArray(r.styles) || !r.styles.length || r.styles.includes(mp.style))
+  return mealRecipes.filter(r => !keys.length || keys.includes(normalizeProtein(r.protein || '')));
+}
+function savedMatches(mp){
+  return proteinOnlyMatches(mp).filter(r =>
+    !Array.isArray(r.styles) || !r.styles.length || r.styles.includes(mp.style)
   );
 }
 // Loose search across title/protein/style names: every query token must
@@ -3086,7 +3090,13 @@ function renderMeals(){
 
 function _recipesViewHTML(mp){
   if(!mp.style || mealStylePicking){
-    return `<div class="seg-lbl" style="margin:18px 0 10px 22px">How are we prepping this week?</div>` +
+    // "Change" opens this same picker over an existing choice — give it a
+    // way back that isn't "re-tap your current style and hope."
+    const canCancel = !!mp.style && mealStylePicking;
+    return (canCancel ? `<div class="seg-lbl" style="margin:18px 22px 0;display:flex;justify-content:space-between;align-items:center">
+        <span>How are we prepping this week?</span>
+        <button class="mp-cancel-pick" id="mp-cancel-style">Cancel</button>
+      </div>` : `<div class="seg-lbl" style="margin:18px 0 10px 22px">How are we prepping this week?</div>`) +
       MEAL_STYLES.map(s => `
         <button class="style-card${mp.style===s.id?' sel':''}" data-style="${s.id}">
           <div class="style-ic"><i data-lucide="${s.icon}"></i></div>
@@ -3098,6 +3108,7 @@ function _recipesViewHTML(mp){
   }
   const style = MEAL_STYLES.find(s => s.id === mp.style) || MEAL_STYLES[0];
   const count = mp.proteins.length;
+  const overCap = count > PROTEIN_CAP;
   return `
     <button class="style-current" id="mp-change-style">
       <div class="style-ic"><i data-lucide="${style.icon}"></i></div>
@@ -3106,13 +3117,12 @@ function _recipesViewHTML(mp){
     </button>
     <div class="seg-lbl" style="margin:20px 22px 10px;display:flex;justify-content:space-between">
       <span>Proteins</span>
-      <span style="color:var(--sky-deep);letter-spacing:.02em;text-transform:none">${count} of ${PROTEIN_CAP}${count>=PROTEIN_CAP?' — cap reached':''}</span>
+      <span style="color:var(--sky-deep);letter-spacing:.02em;text-transform:none">${count} selected${overCap ? ` · AI uses first ${PROTEIN_CAP}` : ''}</span>
     </div>
     <div class="pk-row">
       ${proteinOptions().map(p => {
         const on = mp.proteins.includes(p);
-        const dis = !on && count >= PROTEIN_CAP;
-        return `<button class="pk-chip${on?' on':''}${dis?' dis':''}" data-protein="${escapeHtml(p)}">${escapeHtml(p)}</button>`;
+        return `<button class="pk-chip${on?' on':''}" data-protein="${escapeHtml(p)}">${escapeHtml(p)}</button>`;
       }).join('')}
     </div>
     <button class="btn-primary mp-cta" id="mp-find">Find recipes <i data-lucide="search"></i></button>
@@ -3121,15 +3131,31 @@ function _recipesViewHTML(mp){
 }
 
 /* ── results: saved first, then AI suggestions ── */
-function _recipeCardHTML(r, kind, inWeek, ref){
-  const meta = [r.serves ? `Serves ${r.serves}` : '', r.minutes ? `${r.minutes} min` : '', kind==='sugg' ? 'AI suggestion' : '']
+// Discrete batch-size steps for the in-week scale stepper — covers halving
+// (smaller household night / fewer guests) up to tripling for a big batch.
+const RECIPE_SCALE_STEPS = [0.5, 1, 1.5, 2, 3];
+const DAY_ABBR = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+function _recipeCardHTML(r, kind, inWeek, ref, scale){
+  scale = scale || 1;
+  const effServes = (r.serves && scale !== 1) ? fmtQty(r.serves * scale) : null;
+  const meta = [r.serves ? (effServes ? `Serves ${r.serves} → ${effServes}` : `Serves ${r.serves}`) : '', r.minutes ? `${r.minutes} min` : '', kind==='sugg' ? 'AI suggestion' : '']
     .filter(Boolean).join(' · ');
+  const day = inWeek ? ((S.mealPrep.recipeDay || {})[ref] || null) : null;
   return `<div class="rc-card${inWeek?' active':''}">
     <span class="rc-tag ${kind}">${kind==='saved' ? 'Saved' : 'Suggested'}</span>
-    <div class="rc-name">${escapeHtml(r.name)}</div>
+    <div class="rc-name-row"><div class="rc-ic"><i data-lucide="${proteinIcon(r.protein)}"></i></div><div class="rc-name">${escapeHtml(r.name)}</div></div>
     ${meta ? `<div class="rc-meta">${escapeHtml(meta)}</div>` : ''}
     ${r.summary ? `<div class="rc-sum">${escapeHtml(r.summary)}</div>` : ''}
     <div class="rc-chips"><span class="rc-chip p">${escapeHtml(r.protein || '?')}</span></div>
+    ${inWeek ? `<div class="rc-week-row">
+      <div class="rc-scale" data-rc-scale="${ref}">
+        <button class="rc-scale-btn" data-scale-dir="-1" aria-label="Smaller batch">–</button>
+        <span class="rc-scale-val">×${fmtQty(scale)}</span>
+        <button class="rc-scale-btn" data-scale-dir="1" aria-label="Bigger batch">+</button>
+      </div>
+      <button class="rc-day" data-rc-day="${ref}">${day || '+ day'}</button>
+      <button class="rc-cook-btn" data-rc-cook="${ref}"><i data-lucide="flame"></i>Cooked it</button>
+    </div>` : ''}
     <div class="rc-btns">
       <button class="rc-btn" data-view-${kind}="${ref}">View</button>
       <button class="rc-btn ${inWeek ? 'added' : 'add'}" data-week-${kind}="${ref}">${inWeek ? '✓ In this week' : '+ Add to week'}</button>
@@ -3140,6 +3166,10 @@ function _recipeCardHTML(r, kind, inWeek, ref){
 // every protein-chip tap (slicer behavior) — no button press involved.
 function _savedListHTML(mp){
   const saved = savedMatches(mp);
+  // Recipes that match the protein filter but are tagged for a different
+  // prep style: previously just vanished with no explanation — you'd swear
+  // the app lost a recipe. Surface the count and a one-tap way to find them.
+  const hiddenByStyle = proteinOnlyMatches(mp).length - saved.length;
   const weekCount = (mp.activeRecipeIds || []).length;
   let html = `<div id="mp-results">
     <div class="weekbar" style="margin-top:6px">
@@ -3151,7 +3181,7 @@ function _savedListHTML(mp){
       <span style="text-transform:none;letter-spacing:0;color:var(--sky-deep)">${saved.length} match${saved.length===1?'':'es'}</span>
     </div>`;
   if(saved.length){
-    saved.forEach(r => { html += _recipeCardHTML(r, 'saved', (mp.activeRecipeIds||[]).includes(r.id), r.id); });
+    saved.forEach(r => { html += _recipeCardHTML(r, 'saved', (mp.activeRecipeIds||[]).includes(r.id), r.id, (mp.recipeScale||{})[r.id]); });
   } else if(!mealResults?.aiRequested){
     html += `<div class="rc-none" style="border-style:solid">
       No saved recipe matches this combo. What would you like to do?
@@ -3160,6 +3190,9 @@ function _savedListHTML(mp){
         ${mp.proteins.length ? '<button class="rc-btn add" id="mp-ai-go" style="flex:1"><i data-lucide="sparkles"></i>&nbsp;AI suggestion</button>' : ''}
       </div>
     </div>`;
+  }
+  if(hiddenByStyle > 0){
+    html += `<button class="rc-hidden-row" id="mp-show-hidden">${hiddenByStyle} more match${hiddenByStyle===1?'':'es'} your protein, tagged for a different prep style — tap to search them</button>`;
   }
   if(saved.length && !mealResults?.aiRequested && mp.proteins.length){
     html += `<button class="rc-btn add" id="mp-more-ai" style="margin:12px 16px 0;width:calc(100% - 32px)"><i data-lucide="sparkles"></i>&nbsp;Get AI suggestions too</button>`;
@@ -3196,7 +3229,7 @@ async function fetchSuggestions(mp){
     const timeoutId = setTimeout(() => controller.abort(), 45000); // live 70b suggest runs measured up to ~24s
     const res = await fetch(MEAL_PROXY_URL + '/suggest', {
       method:'POST', headers:{'Content-Type':'application/json'}, signal:controller.signal,
-      body: JSON.stringify({styleName, proteins: mp.proteins, existingRecipeNames: mealRecipes.map(r => r.name)})
+      body: JSON.stringify({styleName, proteins: mp.proteins.slice(0, PROTEIN_CAP), existingRecipeNames: mealRecipes.map(r => r.name)})
     });
     clearTimeout(timeoutId);
     const data = await res.json();
@@ -3225,35 +3258,157 @@ function fmtQty(q){
   return String(parseFloat(q.toFixed(2)));
 }
 function fmtIngredient(i){ return [fmtQty(i.qty), i.unit||'', i.item].filter(Boolean).join(' '); }
-function openRecipeView(r){
+
+// Small protein → icon mapping, purely visual (badge on cards and the view).
+function proteinIcon(protein){
+  const p = (protein||'').toLowerCase();
+  if(/chicken|turkey|duck/.test(p)) return 'drumstick';
+  if(/pork|bacon|ham/.test(p)) return 'ham';
+  if(/beef|steak|lamb|mince|sausage/.test(p)) return 'beef';
+  if(/fish|salmon|tuna|seafood|prawn|shrimp/.test(p)) return 'fish';
+  if(/egg/.test(p)) return 'egg';
+  if(/tofu|tempeh|vegetarian|vegan|lentil|chickpea|bean/.test(p)) return 'salad';
+  return 'utensils';
+}
+
+// Screen Wake Lock for the recipe view's "keep screen on" toggle — released
+// unconditionally whenever any sheet closes (closeSheet), so it can never be
+// left stuck on regardless of how the sheet was dismissed.
+let _wakeLock = null;
+async function requestWakeLock(){
+  try{ if('wakeLock' in navigator) _wakeLock = await navigator.wakeLock.request('screen'); }
+  catch(e){ /* not fatal — cooking still works without it */ }
+}
+function releaseWakeLock(){
+  try{ _wakeLock?.release(); }catch(e){}
+  _wakeLock = null;
+}
+
+// Shared by the recipe view, the recipe cards, and the search sheet so
+// "add/remove from this week" behaves identically everywhere it appears.
+function toggleRecipeInWeek(id){
+  commitChange(state => {
+    const arr = state.mealPrep.activeRecipeIds;
+    const i = arr.indexOf(id);
+    if(i >= 0) arr.splice(i, 1); else arr.push(id);
+    regenerateGrocery(state);
+  });
+}
+// Adopts an AI suggestion into the cookbook (subcollection doc, source:'ai')
+// and adds it to this week's set in one step — shared by the card's
+// "+ Add to week" button and the recipe view's equivalent action.
+function adoptSuggestionIntoWeek(r, mp, onDone, onError){
+  const id = uid();
+  const doc = {
+    name: r.name, protein: r.protein, styles: mp.style ? [mp.style] : [],
+    serves: r.serves ?? null, minutes: r.minutes ?? null,
+    ingredients: r.ingredients || [], steps: r.steps || [],
+    source: 'ai', createdAt: Date.now(),
+  };
+  RECIPES.doc(id).set(doc).then(() => {
+    mealRecipes.unshift({id, ...doc}); // optimistic — listener echoes shortly after
+    commitChange(state => {
+      state.mealPrep.activeRecipeIds.push(id);
+      regenerateGrocery(state, {[id]: doc});
+    });
+    onDone && onDone(id, doc);
+  }).catch(err => onError && onError(err));
+}
+function markRecipeCooked(id){
+  const r = mealRecipes.find(x => x.id === id); if(!r) return;
+  commitChange(state => {
+    state.mealPrep.mealLog = state.mealPrep.mealLog || [];
+    state.mealPrep.mealLog.push({recipeId: id, name: r.name, protein: r.protein || '', at: Date.now()});
+  });
+  if(currentTab === 'meals') renderMeals();
+  showToast(`${r.name} logged as cooked`);
+}
+
+// opts.backTo: 'main' (default) closes back to whatever screen opened the
+// view; 'search' reopens the Saved-recipes sheet — fixes edit/delete always
+// dumping you into search even when you got here from the main screen.
+// opts.suggIdx: present only for an unadopted AI suggestion, so "Add to
+// week" can adopt it (edit/delete stay hidden until it's actually saved).
+function openRecipeView(r, opts){
+  const o = opts || {};
+  const backTo = o.backTo || 'main';
   const meta = [r.serves ? `Serves ${r.serves}` : '', r.minutes ? `${r.minutes} min` : ''].filter(Boolean).join(' · ');
-  // AI suggestions pass through here too before adoption — they have no
-  // cookbook doc yet, so edit/delete only appear for saved recipes.
   const saved = mealRecipes.find(x => x.id === r.id);
+  const inWeek = !!saved && (S.mealPrep?.activeRecipeIds || []).includes(saved.id);
+  const canAddToWeek = !!saved || o.suggIdx != null;
   openSheet(`
     <div class="grabber"></div>
     <div class="sheet-head">
-      <div class="sheet-title">${escapeHtml(r.name)}</div>
+      <div class="rv-title-row">
+        <div class="rv-title-ic"><i data-lucide="${proteinIcon(r.protein)}"></i></div>
+        <div class="sheet-title">${escapeHtml(r.name)}</div>
+      </div>
       <button class="sheet-close" id="sh-close"><i data-lucide="x"></i></button>
     </div>
     <div class="rc-chips" style="margin-top:-6px"><span class="rc-chip p">${escapeHtml(r.protein||'?')}</span>${meta?`<span class="rc-chip">${escapeHtml(meta)}</span>`:''}</div>
+    ${r.sourceUrl ? `<a class="rv-source" href="${escapeHtml(r.sourceUrl)}" target="_blank" rel="noopener"><i data-lucide="link"></i>${escapeHtml(r.sourceUrl.replace(/^https?:\/\//,'').replace(/\/$/,''))}</a>` : ''}
+    <div class="toggle-row" style="margin-top:2px">
+      <div>
+        <div class="toggle-lbl">Keep screen on</div>
+        <div class="toggle-sub">Handy while you're mid-recipe</div>
+      </div>
+      <label class="toggle-switch">
+        <input type="checkbox" id="rv-wake">
+        <div class="toggle-slider"></div>
+      </label>
+    </div>
     <div class="seg-lbl">Ingredients</div>
-    <div class="rv-list">${(r.ingredients||[]).map(i => `<div class="rv-ing">${escapeHtml(fmtIngredient(i))}</div>`).join('') || '<div class="rv-ing" style="color:var(--muted)">None listed</div>'}</div>
+    <div class="rv-list">${(r.ingredients||[]).map((i,idx) => `<label class="rv-ing rv-check"><input type="checkbox" data-rv-check="ing-${idx}"><span>${escapeHtml(fmtIngredient(i))}</span></label>`).join('') || '<div class="rv-ing" style="color:var(--muted)">None listed</div>'}</div>
     <div class="seg-lbl">Steps</div>
-    <div class="rv-list">${(r.steps||[]).map((s,i) => `<div class="rv-step"><b>${i+1}.</b> ${escapeHtml(s)}</div>`).join('') || '<div class="rv-ing" style="color:var(--muted)">None listed</div>'}</div>
-    ${saved ? `<div class="rc-btns" style="margin-top:16px">
-      <button class="rc-btn del" id="rv-del" style="flex:1"><i data-lucide="trash-2"></i>&nbsp;Delete</button>
-      <button class="rc-btn add" id="rv-edit" style="flex:1"><i data-lucide="pencil"></i>&nbsp;Edit</button>
-    </div>` : ''}`,
+    <div class="rv-list">${(r.steps||[]).map((s,idx) => `<label class="rv-step rv-check"><input type="checkbox" data-rv-check="step-${idx}"><span><b>${idx+1}.</b> ${escapeHtml(s)}</span></label>`).join('') || '<div class="rv-ing" style="color:var(--muted)">None listed</div>'}</div>
+    <div class="rc-btns" style="margin-top:16px;flex-wrap:wrap">
+      ${saved ? `<button class="rc-btn del" id="rv-del" style="flex:1"><i data-lucide="trash-2"></i>&nbsp;Delete</button>
+      <button class="rc-btn add" id="rv-edit" style="flex:1"><i data-lucide="pencil"></i>&nbsp;Edit</button>` : ''}
+      ${canAddToWeek ? `<button class="rc-btn ${inWeek?'added':'add'}" id="rv-week" style="flex:1"><i data-lucide="${inWeek?'check':'shopping-basket'}"></i>&nbsp;${inWeek?'In this week':'Add to week'}</button>` : ''}
+      ${inWeek ? `<button class="rc-btn add" id="rv-cook" style="flex:1"><i data-lucide="flame"></i>&nbsp;Cooked it</button>` : ''}
+    </div>`,
   ()=>{
     document.getElementById('sh-close').onclick = closeSheet;
     if(saved){
-      document.getElementById('rv-edit').onclick = ()=> openParseReviewSheet(saved, 'edit');
-      document.getElementById('rv-del').onclick = ()=> deleteRecipe(saved);
+      document.getElementById('rv-edit').onclick = ()=> openParseReviewSheet(saved, 'edit', backTo);
+      document.getElementById('rv-del').onclick = ()=> deleteRecipe(saved, backTo);
     }
+    const cookBtn = document.getElementById('rv-cook');
+    if(cookBtn) cookBtn.onclick = ()=> markRecipeCooked(saved.id);
+    const weekBtn = document.getElementById('rv-week');
+    if(weekBtn) weekBtn.onclick = ()=>{
+      if(saved){
+        toggleRecipeInWeek(saved.id);
+        if(currentTab === 'meals') renderMeals();
+        // Re-open rather than patch in place — inWeek flips the "Cooked it"
+        // button's presence too, not just this button's own label.
+        openRecipeView(saved, {backTo});
+      } else if(o.suggIdx != null){
+        weekBtn.disabled = true;
+        adoptSuggestionIntoWeek(mealResults.suggested[o.suggIdx], S.mealPrep, ()=>{
+          mealResults.suggested.splice(o.suggIdx, 1);
+          if(currentTab === 'meals') renderMeals();
+          openRecipeView(mealRecipes[0], {backTo}); // just-unshifted adopted copy
+        }, err => {
+          weekBtn.disabled = false;
+          openModal(`
+            <div class="mbox-icon" style="background:var(--red-soft)"><i data-lucide="alert-triangle" style="color:var(--red)"></i></div>
+            <div class="mbox-title">Couldn't save that recipe</div>
+            <div class="mbox-sub">${escapeHtml(err.message || String(err))}</div>
+            <div class="mbox-btns"><button class="mbox-btn primary-btn" id="mp-ok">OK</button></div>`,
+          ()=>{ document.getElementById('mp-ok').onclick = closeModal; });
+        });
+      }
+    };
+    document.getElementById('rv-wake').addEventListener('change', e => {
+      if(e.target.checked) requestWakeLock(); else releaseWakeLock();
+    });
+    document.querySelectorAll('[data-rv-check]').forEach(cb => cb.addEventListener('change', e=>{
+      e.target.closest('label').classList.toggle('done', e.target.checked);
+    }));
   });
 }
-function deleteRecipe(r){
+function deleteRecipe(r, backTo){
   if(!confirm(`Delete “${r.name}” forever? It comes off this week's set and grocery list too. This cannot be undone.`)) return;
   RECIPES.doc(r.id).delete().then(()=>{
     // Optimistic cache update so the reopened list is already correct;
@@ -3265,7 +3420,10 @@ function deleteRecipe(r){
       if(i >= 0) arr.splice(i, 1);
       regenerateGrocery(state);
     });
-    openRecipeSearchSheet(false);
+    // Return to wherever this view was opened from, not always search —
+    // a delete triggered from the main screen used to force-navigate there.
+    if(backTo === 'search') openRecipeSearchSheet(false);
+    else closeSheet();
     if(currentTab === 'meals') renderMeals();
   }).catch(err => alert('Delete failed: ' + (err.message || err)));
 }
@@ -3297,24 +3455,6 @@ function prettyQty(qty, unit){
   if(unit === 'ml' && qty >= 1000) return fmtQty(Math.round(qty/100)/10) + ' l';
   return fmtQty(qty) + (unit ? ' ' + unit : '');
 }
-// A recipe logs as "eaten" the moment ALL of its derived grocery lines are
-// checked while it is still in the week's set. loggedIds guards against
-// duplicate logging within a cycle; it is pruned when a recipe leaves the
-// set (so a later week can log it again) while mealLog entries persist.
-function recordMealCompletions(state){
-  const mp = state.mealPrep;
-  mp.mealLog = mp.mealLog || [];
-  mp.loggedIds = mp.loggedIds || [];
-  (mp.activeRecipeIds || []).forEach(rid => {
-    if(mp.loggedIds.includes(rid)) return;
-    const lines = (mp.grocery || []).filter(g => !g.manual && (g.sources || []).includes(rid));
-    if(!lines.length || !lines.every(l => l.checked)) return;
-    const r = mealRecipes.find(x => x.id === rid);
-    if(!r) return;
-    mp.mealLog.push({recipeId: rid, name: r.name, protein: r.protein || '', at: Date.now()});
-    mp.loggedIds.push(rid);
-  });
-}
 // Wheel-pick lifecycle: 'pending' until either marked visited or superseded
 // by a later REAL spin. Entries from before statuses existed resolve lazily.
 function wheelPickStatus(w, visitedNameSet){
@@ -3337,11 +3477,12 @@ function regenerateGrocery(state, extraById){
   const keyUnits = new Map();  // ingredient key → Set of unit-pools seen
   (mp.activeRecipeIds || []).forEach(id => {
     const r = byId[id]; if(!r) return;
+    const scale = (mp.recipeScale && mp.recipeScale[id]) || 1;
     (r.ingredients || []).forEach(ing => {
       if(!ing || !ing.item) return;
       const key = normKey(ing.item);
       let unit = normUnit(ing.unit);
-      let qty = (typeof ing.qty === 'number' && isFinite(ing.qty) && ing.qty > 0) ? ing.qty : null;
+      let qty = (typeof ing.qty === 'number' && isFinite(ing.qty) && ing.qty > 0) ? ing.qty * scale : null;
       if(qty != null && unit === 'kg'){ qty *= 1000; unit = 'g'; }
       if(qty != null && unit === 'l'){ qty *= 1000; unit = 'ml'; }
       // qty-less mentions pool separately ('~'); counted-but-unitless pool as '#'
@@ -3401,24 +3542,8 @@ function _grocerySrcLabel(item){
     : `${names[0]} +${names.length - 1} more`;
   return item.edited ? base + ' · edited' : base;
 }
-function _groceryViewHTML(mp){
-  const items = mp.grocery || [];
-  if(!items.length){
-    const hasActive = (mp.activeRecipeIds || []).length > 0;
-    return `<div class="empty-state">
-      <i data-lucide="shopping-basket"></i>
-      <div class="es-title">Nothing on the list</div>
-      <p>${hasActive ? 'Your week’s recipes had no listed ingredients — add items below.' : 'Add recipes to this week and the groceries build themselves.'}</p>
-      <button class="rc-btn add" id="g-add-empty" style="margin-top:16px;flex:none;width:180px;padding:0 14px">+ Add item</button>
-    </div>`;
-  }
-  const got = items.filter(i => i.checked).length;
-  let html = `<div class="seg-lbl" style="margin:18px 22px 4px;display:flex;justify-content:space-between">
-    <span>To get</span>
-    <span style="color:var(--sky-deep);letter-spacing:.02em;text-transform:none">${got} of ${items.length} gotten</span>
-  </div>`;
-  items.forEach(it => {
-    html += `<div class="g-item${it.checked ? ' done' : ''}" data-g-toggle="${it.id}">
+function groceryRowHTML(it){
+  return `<div class="g-item${it.checked ? ' done' : ''}" data-g-toggle="${it.id}">
       <div class="g-check">${it.checked ? '✓' : ''}</div>
       <div class="g-info">
         <div class="g-name">${escapeHtml(it.name)}</div>
@@ -3428,7 +3553,76 @@ function _groceryViewHTML(mp){
       <button class="g-qty" data-g-edit="${it.id}" aria-label="Edit item">${escapeHtml(prettyQty(it.qty, it.unit)) || '<i data-lucide="pencil"></i>'}</button>
       <button class="g-del" data-g-del="${it.id}" aria-label="Remove">✕</button>
     </div>`;
+}
+// Keyword-based aisle grouping — matches how people actually shop far better
+// than one flat alphabetical run. "Other" catches anything unrecognized.
+const AISLE_ORDER = ['Produce','Meat & Seafood','Dairy & Eggs','Bakery','Pantry','Frozen','Other'];
+const AISLE_MAP = [
+  ['Produce', /onion|garlic|potato|tomato|lettuce|carrot|capsicum|pepper|broccoli|spinach|kale|cucumber|zucchini|mushroom|apple|banana|lemon|lime|avocado|herb|basil|coriander|cilantro|parsley|ginger|chilli|chili|celery|cabbage|pumpkin|sweet potato|corn/i],
+  ['Meat & Seafood', /chicken|beef|pork|lamb|mince|bacon|sausage|fish|salmon|prawn|shrimp|steak|turkey/i],
+  ['Dairy & Eggs', /milk|cheese|butter|yog|cream|egg/i],
+  ['Bakery', /bread|bun|roll|tortilla|wrap|bagel/i],
+  ['Pantry', /flour|sugar|rice|pasta|noodle|oil|vinegar|sauce|stock|broth|\bcan\b|\btin\b|bean|lentil|spice|salt|pepper|paste|honey|syrup|nut|seed/i],
+  ['Frozen', /frozen|ice cream/i],
+];
+function aisleFor(name){
+  const n = (name||'').toLowerCase();
+  for(const [aisle, re] of AISLE_MAP) if(re.test(n)) return aisle;
+  return 'Other';
+}
+function groceryListText(mp){
+  const items = mp.grocery || [];
+  const lines = items.filter(i=>!i.checked).map(i => {
+    const q = prettyQty(i.qty, i.unit);
+    return q ? `• ${i.name} — ${q}` : `• ${i.name}`;
   });
+  let text = `Grocery list${lines.length ? '' : ' — all done!'}\n` + lines.join('\n');
+  const checked = items.filter(i=>i.checked);
+  if(checked.length) text += `\n\nAlready got:\n` + checked.map(i=>`✓ ${i.name}`).join('\n');
+  return text.trim();
+}
+async function shareGroceryList(mp){
+  const text = groceryListText(mp);
+  if(navigator.share){
+    try{ await navigator.share({title:'Grocery list', text}); return; }catch(e){ if(e.name==='AbortError') return; }
+  }
+  try{ await navigator.clipboard.writeText(text); showToast('Grocery list copied'); }
+  catch(e){ alert(text); } // last-resort fallback so the list is at least visible/selectable
+}
+function _groceryViewHTML(mp){
+  const items = mp.grocery || [];
+  if(!items.length){
+    const hasActive = (mp.activeRecipeIds || []).length > 0;
+    return `<div class="empty-state">
+      <i data-lucide="shopping-basket"></i>
+      <div class="es-title">Nothing on the list</div>
+      <p>${hasActive ? 'Your week’s recipes had no listed ingredients — add items below.' : 'Pick recipes for this week and the groceries build themselves.'}</p>
+      <div style="display:flex;gap:8px;margin-top:16px">
+        ${!hasActive ? '<button class="rc-btn add" id="g-pick-recipes" style="flex:none;padding:0 14px">Pick recipes</button>' : ''}
+        <button class="rc-btn" id="g-add-empty" style="flex:none;padding:0 14px">+ Add item</button>
+      </div>
+    </div>`;
+  }
+  const got = items.filter(i => i.checked).length;
+  let html = `<div class="seg-lbl g-head-row" style="margin:18px 22px 4px">
+    <span>To get</span>
+    <button class="g-share-btn" id="g-share" aria-label="Share list"><i data-lucide="share-2"></i></button>
+  </div>`;
+  if(got){
+    html += `<div style="text-align:right;padding:0 22px 8px"><button class="wb-clear" id="g-new-week">Start new week — clear ${got} gotten item${got===1?'':'s'}</button></div>`;
+  }
+  const unchecked = items.filter(i=>!i.checked);
+  const checked = items.filter(i=>i.checked);
+  const groups = {};
+  unchecked.forEach(it => { const a = aisleFor(it.name); (groups[a]=groups[a]||[]).push(it); });
+  AISLE_ORDER.filter(a=>groups[a]?.length).forEach(aisle => {
+    html += `<div class="g-aisle-hdr">${aisle}</div>`;
+    groups[aisle].forEach(it => { html += groceryRowHTML(it); });
+  });
+  if(checked.length){
+    html += `<div class="g-aisle-hdr">Gotten</div>`;
+    checked.forEach(it => { html += groceryRowHTML(it); });
+  }
   html += `<button class="g-add" id="g-add"><span class="plus">+</span>Add item</button>`;
   return html;
 }
@@ -3439,24 +3633,34 @@ function _bindGroceryHandlers(mp){
     commitChange(state => {
       const it = (state.mealPrep.grocery || []).find(g => g.id === id);
       if(it){ it.checked = !it.checked; state.mealPrep.grocery.sort(grocerySort); }
-      recordMealCompletions(state);
     });
     renderMeals();
   }));
   document.querySelectorAll('[data-g-del]').forEach(el => el.addEventListener('click', e => {
     e.stopPropagation();
     const id = el.dataset.gDel;
+    let removed = null;
     commitChange(state => {
       const g = state.mealPrep.grocery || [];
-      const it = g.find(x => x.id === id);
+      removed = g.find(x => x.id === id) || null;
       state.mealPrep.grocery = g.filter(x => x.id !== id);
-      if(it && !it.manual){
+      if(removed && !removed.manual){
         state.mealPrep.dismissed = state.mealPrep.dismissed || [];
-        if(!state.mealPrep.dismissed.includes(it.gk)) state.mealPrep.dismissed.push(it.gk);
+        if(!state.mealPrep.dismissed.includes(removed.gk)) state.mealPrep.dismissed.push(removed.gk);
       }
-      recordMealCompletions(state);
     });
     renderMeals();
+    if(removed){
+      showToast(`${removed.name} removed`, 'Undo', ()=>{
+        commitChange(state => {
+          state.mealPrep.grocery = state.mealPrep.grocery || [];
+          if(!state.mealPrep.grocery.some(x=>x.id===removed.id)) state.mealPrep.grocery.push(removed);
+          if(!removed.manual) state.mealPrep.dismissed = (state.mealPrep.dismissed||[]).filter(gk=>gk!==removed.gk);
+          state.mealPrep.grocery.sort(grocerySort);
+        });
+        renderMeals();
+      });
+    }
   }));
   document.querySelectorAll('[data-g-edit]').forEach(el => el.addEventListener('click', e => {
     e.stopPropagation();
@@ -3464,6 +3668,17 @@ function _bindGroceryHandlers(mp){
   }));
   const add = document.getElementById('g-add') || document.getElementById('g-add-empty');
   if(add) add.onclick = ()=> openGroceryItemSheet(null);
+  const pickRecipes = document.getElementById('g-pick-recipes');
+  if(pickRecipes) pickRecipes.onclick = ()=>{ mealSubView='recipes'; renderMeals(); };
+  const share = document.getElementById('g-share');
+  if(share) share.onclick = ()=> shareGroceryList(mp);
+  const newWeek = document.getElementById('g-new-week');
+  if(newWeek) newWeek.onclick = ()=>{
+    const n = (mp.grocery||[]).filter(i=>i.checked).length;
+    if(!confirm(`Clear ${n} gotten item${n===1?'':'s'} from the list? Your recipes for this week stay put.`)) return;
+    commitChange(state => { state.mealPrep.grocery = (state.mealPrep.grocery||[]).filter(i=>!i.checked); });
+    renderMeals();
+  };
 }
 // One sheet adds a manual item (itemId null) or edits any existing line in
 // place. Editing a recipe-derived line flags it `edited`: regenerateGrocery
@@ -3526,14 +3741,15 @@ function _bindMealHandlers(mp){
   }));
   const chg = document.getElementById('mp-change-style');
   if(chg) chg.onclick = ()=>{ mealStylePicking = true; renderMeals(); };
+  const cancelStyle = document.getElementById('mp-cancel-style');
+  if(cancelStyle) cancelStyle.onclick = ()=>{ mealStylePicking = false; renderMeals(); };
   document.querySelectorAll('[data-protein]').forEach(el => el.addEventListener('click', ()=>{
     const p = el.dataset.protein;
     mealResults = null;
     commitChange(state => {
       const arr = state.mealPrep.proteins;
       const i = arr.indexOf(p);
-      if(i >= 0) arr.splice(i, 1);
-      else if(arr.length < PROTEIN_CAP) arr.push(p);
+      if(i >= 0) arr.splice(i, 1); else arr.push(p);
     });
     renderMeals();
   }));
@@ -3553,55 +3769,69 @@ function _bindMealHandlers(mp){
   if(retry) retry.onclick = requestAI;
   const pasteInstead = document.getElementById('mp-paste-instead');
   if(pasteInstead) pasteInstead.onclick = openAddRecipeSheet;
+  const showHidden = document.getElementById('mp-show-hidden');
+  if(showHidden) showHidden.onclick = ()=> openRecipeSearchSheet(false, mp.proteins[0] || '');
+  document.querySelectorAll('[data-scale-dir]').forEach(el => el.addEventListener('click', e => {
+    e.stopPropagation();
+    const id = el.closest('[data-rc-scale]').dataset.rcScale;
+    const dir = Number(el.dataset.scaleDir);
+    commitChange(state => {
+      state.mealPrep.recipeScale = state.mealPrep.recipeScale || {};
+      const cur = state.mealPrep.recipeScale[id] || 1;
+      let idx = RECIPE_SCALE_STEPS.indexOf(cur); if(idx < 0) idx = RECIPE_SCALE_STEPS.indexOf(1);
+      idx = Math.min(RECIPE_SCALE_STEPS.length - 1, Math.max(0, idx + dir));
+      const next = RECIPE_SCALE_STEPS[idx];
+      if(next === 1) delete state.mealPrep.recipeScale[id]; else state.mealPrep.recipeScale[id] = next;
+      regenerateGrocery(state);
+    });
+    renderMeals();
+  }));
+  document.querySelectorAll('[data-rc-day]').forEach(el => el.addEventListener('click', e => {
+    e.stopPropagation();
+    const id = el.dataset.rcDay;
+    commitChange(state => {
+      state.mealPrep.recipeDay = state.mealPrep.recipeDay || {};
+      const cur = state.mealPrep.recipeDay[id] || null;
+      const idx = cur ? DAY_ABBR.indexOf(cur) : -1;
+      const next = idx + 1 >= DAY_ABBR.length ? null : DAY_ABBR[idx+1];
+      if(next) state.mealPrep.recipeDay[id] = next; else delete state.mealPrep.recipeDay[id];
+    });
+    renderMeals();
+  }));
+  document.querySelectorAll('[data-rc-cook]').forEach(el => el.addEventListener('click', e => {
+    e.stopPropagation();
+    markRecipeCooked(el.dataset.rcCook);
+  }));
   const clear = document.getElementById('mp-clear');
-  if(clear) clear.onclick = ()=>{ commitChange(state => { state.mealPrep.activeRecipeIds = []; regenerateGrocery(state); }); renderMeals(); };
+  if(clear) clear.onclick = ()=>{
+    const n = (mp.activeRecipeIds||[]).length;
+    if(!confirm(`Clear all ${n} recipe${n===1?'':'s'} from this week? Their grocery lines go too — anything already checked off stays on the list.`)) return;
+    commitChange(state => { state.mealPrep.activeRecipeIds = []; regenerateGrocery(state); });
+    renderMeals();
+  };
 
   document.querySelectorAll('[data-view-saved]').forEach(el => el.addEventListener('click', ()=>{
     const r = mealRecipes.find(x => x.id === el.dataset.viewSaved);
     if(r) openRecipeView(r);
   }));
   document.querySelectorAll('[data-view-sugg]').forEach(el => el.addEventListener('click', ()=>{
-    const r = mealResults?.suggested[Number(el.dataset.viewSugg)];
-    if(r) openRecipeView(r);
+    const idx = Number(el.dataset.viewSugg);
+    const r = mealResults?.suggested[idx];
+    if(r) openRecipeView(r, {suggIdx: idx});
   }));
   document.querySelectorAll('[data-week-saved]').forEach(el => el.addEventListener('click', ()=>{
-    const id = el.dataset.weekSaved;
-    commitChange(state => {
-      const arr = state.mealPrep.activeRecipeIds;
-      const i = arr.indexOf(id);
-      if(i >= 0) arr.splice(i, 1); else arr.push(id);
-      regenerateGrocery(state);
-    });
+    toggleRecipeInWeek(el.dataset.weekSaved);
     renderMeals();
   }));
   document.querySelectorAll('[data-week-sugg]').forEach(el => el.addEventListener('click', ()=>{
     const idx = Number(el.dataset.weekSugg);
     const r = mealResults?.suggested[idx];
     if(!r) return;
-    // Adding a suggestion adopts it into the cookbook (subcollection doc,
-    // flagged source:'ai') and puts it in this week's set — it then shows
-    // under Saved via the recipes listener, so drop it from the transient list.
-    const id = uid();
-    const doc = {
-      name: r.name, protein: r.protein, styles: mp.style ? [mp.style] : [],
-      serves: r.serves ?? null, minutes: r.minutes ?? null,
-      ingredients: r.ingredients || [], steps: r.steps || [],
-      source: 'ai', createdAt: Date.now(),
-    };
-    // Order matters (root cause of the "lost selections" bug): commit the
-    // week id ONLY after the cookbook write succeeds, and surface failures
-    // instead of a console-only catch — a rules rejection used to orphan
-    // the id silently and the card would vanish.
     el.disabled = true;
-    RECIPES.doc(id).set(doc).then(() => {
+    adoptSuggestionIntoWeek(r, mp, ()=>{
       mealResults.suggested.splice(idx, 1);
-      commitChange(state => {
-        state.mealPrep.activeRecipeIds.push(id);
-        // the listener hasn't echoed the new doc into the cache yet — pass it in
-        regenerateGrocery(state, {[id]: doc});
-      });
       renderMeals();
-    }).catch(err => {
+    }, err => {
       el.disabled = false;
       openModal(`
         <div class="mbox-icon" style="background:var(--red-soft)"><i data-lucide="alert-triangle" style="color:var(--red)"></i></div>
@@ -3640,7 +3870,7 @@ async function proxyPost(path, body, timeoutMs){
     return data;
   } finally { clearTimeout(timeoutId); }
 }
-async function runParseFlow(text, btn, errEl, restoreHTML){
+async function runParseFlow(text, btn, errEl, restoreHTML, sourceUrl){
   if(MEAL_PROXY_URL.includes('YOUR-SUBDOMAIN')){
     errEl.textContent = 'The meal-prep-proxy Worker is not deployed yet — run wrangler deploy and set MEAL_PROXY_URL in app.js.';
     errEl.style.display = 'block'; return;
@@ -3648,7 +3878,7 @@ async function runParseFlow(text, btn, errEl, restoreHTML){
   btn.disabled = true; btn.textContent = 'Parsing…';
   try{
     const data = await proxyPost('/parse', {text, existingProteins: proteinOptions()}, 25000);
-    openParseReviewSheet(data.recipe, data.via);
+    openParseReviewSheet({...data.recipe, sourceUrl: sourceUrl || null}, data.via);
   }catch(e){
     errEl.textContent = e.name==='AbortError' ? 'Parse timed out — try again' : e.message;
     errEl.style.display = 'block';
@@ -3656,8 +3886,53 @@ async function runParseFlow(text, btn, errEl, restoreHTML){
     lucide.createIcons();
   }
 }
+// Photo import: the vision model's job is a rough verbatim transcription of
+// the photo, not structuring — the transcription is fed through the exact
+// same /parse pipeline (and the same review-before-save sheet) as pasted
+// text, so a caption model's imprecision gets the same human check every
+// other entry path already gets.
+async function runImageParseFlow(imageDataUrl, btn, errEl, restoreHTML){
+  if(MEAL_PROXY_URL.includes('YOUR-SUBDOMAIN')){
+    errEl.textContent = 'The meal-prep-proxy Worker is not deployed yet.';
+    errEl.style.display = 'block'; return;
+  }
+  btn.disabled = true; btn.textContent = 'Reading photo…';
+  try{
+    const data = await proxyPost('/parse-image', {imageBase64: imageDataUrl, existingProteins: proteinOptions()}, 45000);
+    openParseReviewSheet(data.recipe, data.via);
+  }catch(e){
+    errEl.textContent = e.name==='AbortError' ? 'That took too long — try a smaller or clearer photo' : e.message;
+    errEl.style.display = 'block';
+    btn.disabled = false; btn.innerHTML = restoreHTML;
+    lucide.createIcons();
+  }
+}
+// Downscales a picked/captured photo before it ever leaves the device —
+// phone camera photos are routinely 4-12MB, which is slow to upload and
+// wasteful to run through a vision model. 1600px on the long edge keeps
+// recipe-card-sized text readable while keeping the request small and fast.
+function downscaleImageFile(file, maxDim, quality){
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      let {width, height} = img;
+      if(width > maxDim || height > maxDim){
+        const scale = maxDim / Math.max(width, height);
+        width = Math.round(width*scale); height = Math.round(height*scale);
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = width; canvas.height = height;
+      canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+      resolve(canvas.toDataURL('image/jpeg', quality));
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Could not read that photo')); };
+    img.src = url;
+  });
+}
 function openAddRecipeSheet(){
-  // Three peer entry methods as tabs; panes stay in the DOM so switching
+  // Four peer entry methods as tabs; panes stay in the DOM so switching
   // tabs never loses half-typed input. "Enter manually" embeds the same
   // shared form the parse-review and edit screens use.
   const manualForm = recipeFormParts({}, 'manual');
@@ -3670,6 +3945,7 @@ function openAddRecipeSheet(){
     <div class="chips">
       <div class="chip sel" data-ar-tab="link">From a link</div>
       <div class="chip" data-ar-tab="paste">Paste text</div>
+      <div class="chip" data-ar-tab="photo">From a photo</div>
       <div class="chip" data-ar-tab="manual">Enter manually</div>
     </div>
     <div class="ar-pane" id="ar-pane-link">
@@ -3686,17 +3962,47 @@ function openAddRecipeSheet(){
       <div class="rc-none err" id="pp-err" style="display:none;margin:0"></div>
       <button class="btn-primary" id="pp-parse"><i data-lucide="wand-2"></i>Parse it</button>
     </div>
+    <div class="ar-pane hidden" id="ar-pane-photo">
+      <div class="seg-lbl">Photo of the recipe</div>
+      <div class="toggle-sub" style="margin:-4px 2px 8px">Experimental — the reader often misreads or invents details, especially with small or dense text. Treat the result as a rough draft and check every field before saving.</div>
+      <input type="file" accept="image/*" capture="environment" id="pp-photo-input" style="display:none">
+      <button class="rc-btn add" id="pp-photo-pick" style="width:100%"><i data-lucide="camera"></i>&nbsp;Choose a photo</button>
+      <div id="pp-photo-preview" style="display:none;margin-top:10px">
+        <img id="pp-photo-img" class="pp-photo-img">
+        <button class="btn-primary" id="pp-photo-parse" style="margin-top:10px"><i data-lucide="wand-2"></i>Parse photo</button>
+      </div>
+      <div class="rc-none err" id="pp-photo-err" style="display:none;margin-top:10px"></div>
+    </div>
     <div class="ar-pane hidden" id="ar-pane-manual">${manualForm.html}</div>`,
   ()=>{
     document.getElementById('sh-close').onclick = closeSheet;
     document.querySelectorAll('[data-ar-tab]').forEach(el => el.addEventListener('click', ()=>{
       document.querySelectorAll('[data-ar-tab]').forEach(e => e.classList.toggle('sel', e===el));
-      ['link','paste','manual'].forEach(t =>
+      ['link','paste','photo','manual'].forEach(t =>
         document.getElementById('ar-pane-'+t).classList.toggle('hidden', t!==el.dataset.arTab));
     }));
     manualForm.bind();
     const errEl = document.getElementById('pp-err');
     const urlErrEl = document.getElementById('pp-url-err');
+    const photoErrEl = document.getElementById('pp-photo-err');
+    let photoDataUrl = null;
+    document.getElementById('pp-photo-pick').onclick = ()=> document.getElementById('pp-photo-input').click();
+    document.getElementById('pp-photo-input').addEventListener('change', async e => {
+      const file = e.target.files?.[0]; if(!file) return;
+      photoErrEl.style.display = 'none';
+      try{
+        photoDataUrl = await downscaleImageFile(file, 1600, 0.85);
+        document.getElementById('pp-photo-img').src = photoDataUrl;
+        document.getElementById('pp-photo-preview').style.display = 'block';
+      }catch(err){
+        photoErrEl.textContent = err.message || 'Could not read that photo';
+        photoErrEl.style.display = 'block';
+      }
+    });
+    document.getElementById('pp-photo-parse').onclick = ()=>{
+      if(!photoDataUrl) return;
+      runImageParseFlow(photoDataUrl, document.getElementById('pp-photo-parse'), photoErrEl, '<i data-lucide="wand-2"></i>Parse photo');
+    };
     document.getElementById('pp-parse').onclick = ()=>{
       errEl.style.display = 'none';
       const text = document.getElementById('pp-text').value.trim();
@@ -3715,7 +4021,7 @@ function openAddRecipeSheet(){
       try{
         const data = await proxyPost('/fetch', {url}, 25000);
         document.getElementById('pp-text').value = data.text || '';
-        await runParseFlow(data.text || '', btn, urlErrEl, 'Fetch');
+        await runParseFlow(data.text || '', btn, urlErrEl, 'Fetch', url);
       }catch(e){
         urlErrEl.textContent = (e.name==='AbortError' ? 'That site took too long to respond' : e.message) + ' — try the Paste text tab instead.';
         urlErrEl.style.display = 'block';
@@ -3728,11 +4034,12 @@ function openAddRecipeSheet(){
 // with the search focused) and the "Saved recipes" browser row. Rows filter
 // live across title/protein/style; the basket button behaves exactly like
 // "+ Add to week" on the main screen (week set + grocery consolidation).
-function openRecipeSearchSheet(focusSearch){
+function openRecipeSearchSheet(focusSearch, initialQuery){
   function rowHTML(r){
     const inWeek = (S.mealPrep?.activeRecipeIds || []).includes(r.id);
     const meta = [r.serves ? `Serves ${r.serves}` : '', r.minutes ? `${r.minutes} min` : '', r.source==='ai' ? 'AI' : ''].filter(Boolean).join(' · ');
     return `<div class="rs-row" data-rs-view="${r.id}">
+      <div class="rs-row-ic"><i data-lucide="${proteinIcon(r.protein)}"></i></div>
       <div class="g-info">
         <div class="g-name">${escapeHtml(r.name)}</div>
         <div class="g-src">${meta ? escapeHtml(meta) : '&nbsp;'}</div>
@@ -3753,17 +4060,11 @@ function openRecipeSearchSheet(focusSearch){
     document.querySelectorAll('[data-rs-view]').forEach(el => el.addEventListener('click', e => {
       if(e.target.closest('[data-rs-week]')) return;
       const r = mealRecipes.find(x => x.id === el.dataset.rsView);
-      if(r) openRecipeView(r);
+      if(r) openRecipeView(r, {backTo:'search'});
     }));
     document.querySelectorAll('[data-rs-week]').forEach(el => el.addEventListener('click', e => {
       e.stopPropagation();
-      const id = el.dataset.rsWeek;
-      commitChange(state => {
-        const arr = state.mealPrep.activeRecipeIds;
-        const i = arr.indexOf(id);
-        if(i >= 0) arr.splice(i, 1); else arr.push(id);
-        regenerateGrocery(state);
-      });
+      toggleRecipeInWeek(el.dataset.rsWeek);
       const on = el.classList.toggle('on');
       el.innerHTML = `<i data-lucide="${on ? 'check' : 'shopping-basket'}"></i>`;
       lucide.createIcons();
@@ -3776,8 +4077,8 @@ function openRecipeSearchSheet(focusSearch){
       <div class="sheet-title">Saved recipes</div>
       <button class="sheet-close" id="sh-close"><i data-lucide="x"></i></button>
     </div>
-    <input class="plain-input" id="rs-q" placeholder="Search title, protein, style…" autocomplete="off">
-    <div id="rs-list">${listHTML('')}</div>`,
+    <input class="plain-input" id="rs-q" placeholder="Search title, protein, style…" autocomplete="off" value="${escapeHtml(initialQuery||'')}">
+    <div id="rs-list">${listHTML(initialQuery||'')}</div>`,
   ()=>{
     document.getElementById('sh-close').onclick = closeSheet;
     const q = document.getElementById('rs-q');
@@ -3799,7 +4100,8 @@ const ING_UNIT_SUGGEST = ['g','kg','ml','l','cup','tbsp','tsp','clove','can','bu
 // (via 'ai'/'heuristic'), editing a saved recipe (via 'edit'), and the
 // "Enter manually" tab of Add a recipe (via 'manual'). Returns {html, bind}
 // so it can live in its own sheet or inside another sheet's tab pane.
-function recipeFormParts(recipe, via){
+// backTo ('main'|'search') only matters for edits — see openRecipeView.
+function recipeFormParts(recipe, via, backTo){
   const isEdit = via === 'edit';
   const mp = S.mealPrep || {style:null};
   const options = proteinOptions();
@@ -3934,6 +4236,14 @@ function recipeFormParts(recipe, via){
       }).filter(Boolean);
       const steps = [...document.querySelectorAll('#pr-step-rows .ln-input')]
         .map(t => t.value.replace(/^\d+[.)]\s*/, '').trim()).filter(Boolean);
+      // A brand-new recipe with the same (normalized) name as one already in
+      // the cookbook is very likely the same recipe pasted/parsed twice —
+      // flag it rather than silently doubling the cookbook and every future
+      // protein-filtered list.
+      if(!isEdit){
+        const dup = mealRecipes.find(x => normKey(x.name || '') === normKey(name));
+        if(dup && !confirm(`You already have a recipe called "${dup.name}". Save this as a second copy anyway?`)) return;
+      }
       const saveBtn = document.getElementById('pr-save');
       saveBtn.disabled = true; saveBtn.textContent = 'Saving…';
       const doc = {
@@ -3941,6 +4251,7 @@ function recipeFormParts(recipe, via){
         serves: parseInt(document.getElementById('pr-serves').value) || null,
         minutes: parseInt(document.getElementById('pr-minutes').value) || null,
         ingredients, steps,
+        sourceUrl: recipe.sourceUrl || null,
         source: isEdit ? (recipe.source || 'pasted') : (via === 'manual' ? 'manual' : 'pasted'),
         createdAt: isEdit ? (recipe.createdAt || Date.now()) : Date.now(),
       };
@@ -3957,7 +4268,9 @@ function recipeFormParts(recipe, via){
           if((S.mealPrep?.activeRecipeIds || []).includes(recipe.id)){
             commitChange(state => regenerateGrocery(state, {[recipe.id]: updated}));
           }
-          openRecipeSearchSheet(false);
+          // Return to wherever this edit was opened from, not always search.
+          if(backTo === 'search') openRecipeSearchSheet(false);
+          else closeSheet();
         } else {
           closeSheet();
         }
@@ -3975,8 +4288,8 @@ function recipeFormParts(recipe, via){
   return {html, bind};
 }
 
-function openParseReviewSheet(recipe, via){
-  const form = recipeFormParts(recipe, via);
+function openParseReviewSheet(recipe, via, backTo){
+  const form = recipeFormParts(recipe, via, backTo);
   openSheet(`
     <div class="grabber"></div>
     <div class="sheet-head">
@@ -4006,7 +4319,10 @@ function switchTab(tab){
   mealSubView = 'recipes';
   statsSubView = 'tasks';
   mealStylePicking = false;
-  mealResults = null;
+  // mealResults deliberately survives a tab switch — it can take ~20s to
+  // come back from the AI, and leaving/returning to Meals used to wipe it.
+  // Only an actual style/protein change (which invalidates the results)
+  // resets it, in _bindMealHandlers.
   // Meals is day-only: the body class forces the day token set (dimmed at
   // night) for the tab AND its overlays. Other tabs keep global theming.
   document.body.classList.toggle('meals', tab==='meals');

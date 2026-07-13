@@ -1112,12 +1112,38 @@ body.meals .sheet-date-input{color-scheme:light}
 }
 .rc-tag.saved{background:var(--sky-soft);color:var(--sky-deep)}
 .rc-tag.sugg{background:var(--luck-soft);color:var(--luck)}
-.rc-name{font-weight:550;font-size:15px;color:var(--ink);padding-right:78px;line-height:1.3}
+.rc-name-row{display:flex;align-items:center;gap:9px}
+.rc-ic{
+  width:30px;height:30px;border-radius:10px;flex:0 0 30px;
+  display:flex;align-items:center;justify-content:center;
+  background:var(--sky-tint);border:1px solid var(--line);color:var(--sky-deep);
+}
+.rc-ic svg{width:15px;height:15px}
+.rc-name{font-weight:550;font-size:15px;color:var(--ink);padding-right:64px;line-height:1.3}
 .rc-meta{font-size:11.5px;color:var(--muted);margin-top:3px}
 .rc-sum{font-size:12.5px;color:var(--ink-soft);margin-top:6px;line-height:1.45}
 .rc-chips{display:flex;flex-wrap:wrap;gap:5px;margin-top:9px}
 .rc-chip{font-size:10.5px;font-weight:600;border-radius:var(--r-pill);padding:3px 10px;background:var(--sky-tint);border:1px solid var(--line);color:var(--ink-soft)}
 .rc-chip.p{background:var(--sky-soft);border-color:transparent;color:var(--sky-deep)}
+/* in-week row: batch-size stepper, day tag, cook-it — only on cards already in this week's set */
+.rc-week-row{display:flex;align-items:center;gap:8px;margin-top:10px;flex-wrap:wrap}
+.rc-scale{display:flex;align-items:center;gap:2px;background:var(--sky-tint);border:1px solid var(--line);border-radius:var(--r-pill);padding:2px}
+.rc-scale-btn{width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;color:var(--sky-deep)}
+.rc-scale-btn:active{background:var(--sky-soft)}
+.rc-scale-val{font-size:11.5px;font-weight:700;color:var(--sky-deep);min-width:30px;text-align:center;font-variant-numeric:tabular-nums}
+.rc-day{
+  height:28px;padding:0 10px;border-radius:var(--r-pill);
+  background:var(--sky-tint);border:1px solid var(--line);color:var(--ink-soft);
+  font-size:11.5px;font-weight:600;
+}
+.rc-cook-btn{
+  display:inline-flex;align-items:center;gap:5px;margin-left:auto;
+  height:28px;padding:0 11px;border-radius:var(--r-pill);
+  background:var(--gold-soft);color:var(--gold);border:1px solid transparent;
+  font-size:11.5px;font-weight:600;
+}
+.rc-cook-btn svg{width:12px;height:12px}
+.rc-cook-btn:active{transform:scale(.95)}
 .rc-btns{display:flex;gap:8px;margin-top:11px}
 .rc-btn{
   flex:1;min-height:40px;border-radius:var(--r-pill);border:1px solid var(--line);
@@ -1138,10 +1164,24 @@ body.meals .sheet-date-input{color-scheme:light}
 @keyframes ldPulse{0%,100%{opacity:.25;transform:scale(.8)}50%{opacity:1;transform:none}}
 
 /* recipe viewer + parse review */
+.rv-title-row{display:flex;align-items:center;gap:10px}
+.rv-title-ic{
+  width:34px;height:34px;border-radius:11px;flex:0 0 34px;
+  display:flex;align-items:center;justify-content:center;
+  background:var(--sky-tint);border:1px solid var(--line);color:var(--sky-deep);
+}
+.rv-title-ic svg{width:17px;height:17px}
+.rv-source{display:flex;align-items:center;gap:5px;font-size:12px;font-weight:500;color:var(--sky-deep);margin-top:-6px}
+.rv-source svg{width:12px;height:12px;flex:0 0 12px}
 .rv-list{display:flex;flex-direction:column;gap:6px;margin-top:-4px}
 .rv-ing{font-size:13.5px;color:var(--ink);padding:8px 12px;background:var(--sky-tint);border:1px solid var(--line);border-radius:10px}
-.rv-step{font-size:13.5px;color:var(--ink);line-height:1.5;padding:2px 2px}
+.rv-step{font-size:13.5px;color:var(--ink);line-height:1.5;padding:8px 12px}
 .rv-step b{color:var(--sky-deep);font-weight:650}
+/* checkable ingredient/step rows: tick as you cook, ephemeral per view */
+.rv-check{display:flex;align-items:flex-start;gap:10px;cursor:pointer}
+.rv-check input{width:18px;height:18px;flex:0 0 18px;margin-top:1px;accent-color:var(--sky-deep)}
+.rv-check.done{opacity:.5}
+.rv-check.done span{text-decoration:line-through}
 .plain-input{
   width:100%;height:48px;border:1px solid var(--line);border-radius:var(--r-input);
   background:var(--sky-tint);padding:0 14px;font-weight:500;font-size:16px;color:var(--ink);
@@ -1188,6 +1228,7 @@ body.meals .sheet-date-input{color-scheme:light}
 /* Add-a-recipe sheet: tab panes (kept in DOM so typed input survives tab switches) */
 .ar-pane{display:flex;flex-direction:column;gap:14px}
 .ar-pane.hidden{display:none}
+.pp-photo-img{display:block;width:100%;border-radius:var(--r-card);border:1px solid var(--line)}
 
 /* ── Meals: grocery list (stage 5) ───────────────────────────── */
 .g-item{
@@ -1229,11 +1270,32 @@ body.meals .sheet-date-input{color-scheme:light}
   display:flex;align-items:center;gap:12px;padding:14px 18px;min-height:52px;
   color:var(--sky-deep);font-weight:600;font-size:14px;width:100%;text-align:left;
 }
+.g-head-row{display:flex;align-items:center;justify-content:space-between}
+.g-share-btn{
+  width:28px;height:28px;border-radius:50%;flex:0 0 28px;
+  background:var(--sky-tint);border:1px solid var(--line);color:var(--sky-deep);
+  display:flex;align-items:center;justify-content:center;
+}
+.g-share-btn svg{width:13px;height:13px}
+.g-share-btn:active{transform:scale(.92)}
+.g-aisle-hdr{margin:16px 22px 6px;font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.rc-hidden-row{
+  display:block;width:calc(100% - 32px);margin:10px 16px 0;padding:11px 14px;
+  border:1px dashed var(--line-strong);border-radius:var(--r-card);
+  background:transparent;color:var(--muted);font-size:12.5px;font-weight:600;text-align:left;line-height:1.4;
+}
+.mp-cancel-pick{font-size:12px;font-weight:600;color:var(--muted);min-height:32px;padding:0 4px}
 .rs-row{
   display:flex;align-items:center;gap:11px;padding:10px 2px;min-height:60px;
   border-bottom:1px solid var(--line);width:100%;text-align:left;cursor:pointer;
 }
 .rs-row:last-child{border-bottom:none}
+.rs-row-ic{
+  width:32px;height:32px;border-radius:10px;flex:0 0 32px;
+  display:flex;align-items:center;justify-content:center;
+  background:var(--sky-tint);border:1px solid var(--line);color:var(--sky-deep);
+}
+.rs-row-ic svg{width:16px;height:16px}
 .rs-add{
   width:44px;height:44px;flex:0 0 44px;border-radius:50%;
   border:1px solid var(--sky-deep);color:var(--sky-deep);
