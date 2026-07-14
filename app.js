@@ -1193,8 +1193,7 @@ function histItem(l){
   </div>`;
 }
 
-let statsSubView = 'tasks';   // 'tasks' | 'meals' | 'dates'
-let statsMealsPeriod = 'all'; // 'week' | 'month' | 'all'
+let statsSubView = 'tasks';   // 'tasks' | 'dates'
 function renderHistory(){
   document.getElementById('hdr').innerHTML = `
     <div class="flat-hdr">
@@ -1205,24 +1204,20 @@ function renderHistory(){
   const toggle = `<div class="tasks-view-row" style="padding-bottom:6px">
     <div class="tasks-view-chips">
       <button class="tv-chip${statsSubView==='tasks'?' sel':''}" id="sv-tasks"><i data-lucide="list-checks"></i>Tasks</button>
-      <button class="tv-chip${statsSubView==='meals'?' sel':''}" id="sv-meals"><i data-lucide="chef-hat"></i>Meals</button>
       <button class="tv-chip${statsSubView==='dates'?' sel':''}" id="sv-dates"><i data-lucide="heart"></i>Dates</button>
     </div>
   </div>`;
 
-  let body;
-  if(statsSubView === 'meals')      body = _statsMealsHTML();
-  else if(statsSubView === 'dates') body = _statsDatesHTML();
-  else                              body = _statsTasksHTML();
+  // Meals stats removed along with "Cooked it" — there's no longer a source
+  // for a "meals eaten" count, and a permanently-empty section isn't worth
+  // keeping around. See _statsMealsHTML's removal in git history if a real
+  // signal (e.g. explicit logging) reappears later.
+  const body = statsSubView === 'dates' ? _statsDatesHTML() : _statsTasksHTML();
 
   setPanelHTML(toggle + body);
   lucide.createIcons();
   document.getElementById('sv-tasks').onclick = ()=>{ statsSubView='tasks'; renderHistory(); };
-  document.getElementById('sv-meals').onclick = ()=>{ statsSubView='meals'; renderHistory(); };
   document.getElementById('sv-dates').onclick = ()=>{ statsSubView='dates'; renderHistory(); };
-  document.querySelectorAll('[data-mp-period]').forEach(el => el.addEventListener('click', ()=>{
-    statsMealsPeriod = el.dataset.mpPeriod; renderHistory();
-  }));
 }
 
 function _statsTasksHTML(){
@@ -1431,52 +1426,6 @@ function _statsTasksHTML(){
   }
 
   return html;
-}
-
-/* ── Stats · Meals: ranked proteins + meals from mealLog. A meal counts as
-   cooked only when explicitly logged via "Cooked it" (markRecipeCooked) —
-   deliberately NOT inferred from grocery checkboxes, which measure shopping
-   ("bought the ingredients") rather than cooking. ── */
-function _statsMealsHTML(){
-  const log = (S.mealPrep?.mealLog) || [];
-  const periodChips = `<div class="pk-row" style="padding:2px 16px 0">
-    ${[['week','This week'],['month','This month'],['all','All time']].map(([id,lbl]) =>
-      `<button class="pk-chip${statsMealsPeriod===id?' on':''}" data-mp-period="${id}">${lbl}</button>`).join('')}
-  </div>`;
-  if(!log.length){
-    return periodChips + `<div class="empty-state">
-      <i data-lucide="chef-hat"></i>
-      <div class="es-title">No meals logged yet</div>
-      <p>Tap "Cooked it" on a recipe in your week's set once you've made it.</p>
-    </div>`;
-  }
-  const now = new Date();
-  const weekCut = new Date(getWeekStart() + 'T00:00:00').getTime();
-  const monthCut = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
-  const cut = statsMealsPeriod === 'week' ? weekCut : statsMealsPeriod === 'month' ? monthCut : 0;
-  const entries = log.filter(e => (e.at || 0) >= cut);
-
-  function rankedHTML(title, keyFn){
-    const map = {};
-    entries.forEach(e => { const k = keyFn(e); if(k) map[k] = (map[k] || 0) + 1; });
-    const top = Object.entries(map).sort((a,b) => b[1] - a[1]).slice(0, 6);
-    let h = `<div style="padding:0 16px"><div class="stats-hdr-row"><span class="stats-hdr-title">${title}</span></div>`;
-    if(!top.length){
-      h += `<div class="rc-none" style="margin:0">Nothing in this period yet.</div>`;
-    } else {
-      h += `<div class="top-list">${top.map(([name, count], i) => `
-        <div class="top-row">
-          <div class="top-rank">${i+1}</div>
-          <div class="top-name">${escapeHtml(name)}</div>
-          <div class="top-badge">${count}×</div>
-        </div>`).join('')}</div>`;
-    }
-    return h + `</div>`;
-  }
-  return periodChips
-    + rankedHTML('Most-eaten proteins', e => e.protein)
-    + rankedHTML('Most-eaten meals', e => e.name)
-    + `<div style="text-align:center;font-size:11px;color:var(--muted);padding:14px 32px 8px">Counted each time you tap "Cooked it" on a recipe.</div>`;
 }
 
 /* ── Stats · Dates: derived from dates.visited / toVisit / wheelLog ── */
@@ -3154,7 +3103,6 @@ function _recipeCardHTML(r, kind, inWeek, ref, scale){
         <button class="rc-scale-btn" data-scale-dir="1" aria-label="Bigger batch">+</button>
       </div>
       <button class="rc-day" data-rc-day="${ref}">${day || '+ day'}</button>
-      <button class="rc-cook-btn" data-rc-cook="${ref}"><i data-lucide="flame"></i>Cooked it</button>
     </div>` : ''}
     <div class="rc-btns">
       <button class="rc-btn" data-view-${kind}="${ref}">View</button>
@@ -3314,16 +3262,6 @@ function adoptSuggestionIntoWeek(r, mp, onDone, onError){
     onDone && onDone(id, doc);
   }).catch(err => onError && onError(err));
 }
-function markRecipeCooked(id){
-  const r = mealRecipes.find(x => x.id === id); if(!r) return;
-  commitChange(state => {
-    state.mealPrep.mealLog = state.mealPrep.mealLog || [];
-    state.mealPrep.mealLog.push({recipeId: id, name: r.name, protein: r.protein || '', at: Date.now()});
-  });
-  if(currentTab === 'meals') renderMeals();
-  showToast(`${r.name} logged as cooked`);
-}
-
 // opts.backTo: 'main' (default) closes back to whatever screen opened the
 // view; 'search' reopens the Saved-recipes sheet — fixes edit/delete always
 // dumping you into search even when you got here from the main screen.
@@ -3336,6 +3274,14 @@ function openRecipeView(r, opts){
   const saved = mealRecipes.find(x => x.id === r.id);
   const inWeek = !!saved && (S.mealPrep?.activeRecipeIds || []).includes(saved.id);
   const canAddToWeek = !!saved || o.suggIdx != null;
+  // Check-off state is ephemeral (per view-open, not persisted) — ticking
+  // things off while cooking shouldn't rewrite the recipe. Edits, below,
+  // are the opposite: they DO persist, straight onto r (so a suggestion's
+  // in-memory copy and a saved doc both stay the single source of truth).
+  const ingChecked = (r.ingredients||[]).map(()=>false);
+  const stepChecked = (r.steps||[]).map(()=>false);
+  let editingIng = null, editingStep = null;
+
   openSheet(`
     <div class="grabber"></div>
     <div class="sheet-head">
@@ -3357,15 +3303,14 @@ function openRecipeView(r, opts){
         <div class="toggle-slider"></div>
       </label>
     </div>
-    <div class="seg-lbl">Ingredients</div>
-    <div class="rv-list">${(r.ingredients||[]).map((i,idx) => `<label class="rv-ing rv-check"><input type="checkbox" data-rv-check="ing-${idx}"><span>${escapeHtml(fmtIngredient(i))}</span></label>`).join('') || '<div class="rv-ing" style="color:var(--muted)">None listed</div>'}</div>
+    <div class="seg-lbl">Ingredients <span style="text-transform:none;letter-spacing:0">— tap the circle to check off, tap the text to edit</span></div>
+    <div class="rv-list" id="rv-ing-list"></div>
     <div class="seg-lbl">Steps</div>
-    <div class="rv-list">${(r.steps||[]).map((s,idx) => `<label class="rv-step rv-check"><input type="checkbox" data-rv-check="step-${idx}"><span><b>${idx+1}.</b> ${escapeHtml(s)}</span></label>`).join('') || '<div class="rv-ing" style="color:var(--muted)">None listed</div>'}</div>
+    <div class="rv-list" id="rv-step-list"></div>
     <div class="rc-btns" style="margin-top:16px;flex-wrap:wrap">
       ${saved ? `<button class="rc-btn del" id="rv-del" style="flex:1"><i data-lucide="trash-2"></i>&nbsp;Delete</button>
       <button class="rc-btn add" id="rv-edit" style="flex:1"><i data-lucide="pencil"></i>&nbsp;Edit</button>` : ''}
       ${canAddToWeek ? `<button class="rc-btn ${inWeek?'added':'add'}" id="rv-week" style="flex:1"><i data-lucide="${inWeek?'check':'shopping-basket'}"></i>&nbsp;${inWeek?'In this week':'Add to week'}</button>` : ''}
-      ${inWeek ? `<button class="rc-btn add" id="rv-cook" style="flex:1"><i data-lucide="flame"></i>&nbsp;Cooked it</button>` : ''}
     </div>`,
   ()=>{
     document.getElementById('sh-close').onclick = closeSheet;
@@ -3373,16 +3318,16 @@ function openRecipeView(r, opts){
       document.getElementById('rv-edit').onclick = ()=> openParseReviewSheet(saved, 'edit', backTo);
       document.getElementById('rv-del').onclick = ()=> deleteRecipe(saved, backTo);
     }
-    const cookBtn = document.getElementById('rv-cook');
-    if(cookBtn) cookBtn.onclick = ()=> markRecipeCooked(saved.id);
     const weekBtn = document.getElementById('rv-week');
     if(weekBtn) weekBtn.onclick = ()=>{
       if(saved){
         toggleRecipeInWeek(saved.id);
         if(currentTab === 'meals') renderMeals();
-        // Re-open rather than patch in place — inWeek flips the "Cooked it"
-        // button's presence too, not just this button's own label.
-        openRecipeView(saved, {backTo});
+        const nowIn = (S.mealPrep.activeRecipeIds||[]).includes(saved.id);
+        weekBtn.classList.toggle('added', nowIn);
+        weekBtn.classList.toggle('add', !nowIn);
+        weekBtn.innerHTML = `<i data-lucide="${nowIn?'check':'shopping-basket'}"></i>&nbsp;${nowIn?'In this week':'Add to week'}`;
+        lucide.createIcons();
       } else if(o.suggIdx != null){
         weekBtn.disabled = true;
         adoptSuggestionIntoWeek(mealResults.suggested[o.suggIdx], S.mealPrep, ()=>{
@@ -3403,9 +3348,98 @@ function openRecipeView(r, opts){
     document.getElementById('rv-wake').addEventListener('change', e => {
       if(e.target.checked) requestWakeLock(); else releaseWakeLock();
     });
-    document.querySelectorAll('[data-rv-check]').forEach(cb => cb.addEventListener('change', e=>{
-      e.target.closest('label').classList.toggle('done', e.target.checked);
-    }));
+
+    // Persists an ingredient/step edit onto r directly (so the transient
+    // suggestion object and the render below both stay in sync), and onto
+    // the Firestore doc too when this is a saved recipe.
+    function persistRecipeEdit(){
+      if(!saved) return;
+      const updated = {...saved, ingredients: r.ingredients, steps: r.steps};
+      RECIPES.doc(saved.id).set(updated).then(()=>{
+        const i = mealRecipes.findIndex(x=>x.id===saved.id);
+        if(i>=0) mealRecipes[i] = updated;
+        if((S.mealPrep?.activeRecipeIds||[]).includes(saved.id)){
+          commitChange(state => regenerateGrocery(state, {[saved.id]: updated}));
+        }
+      }).catch(err => showToast('Save failed: ' + (err.message || err)));
+    }
+
+    function renderIngList(){
+      const wrap = document.getElementById('rv-ing-list');
+      const items = (r.ingredients||[]).map((ing,idx)=>({ing,idx})).sort((a,b)=>ingChecked[a.idx]-ingChecked[b.idx]);
+      wrap.innerHTML = items.length ? items.map(({ing,idx}) => {
+        if(editingIng === idx) return `<div class="rv-edit-row" data-ing-row="${idx}">
+          <input class="rv-edit-input rv-edit-qty" data-ing-field="qty" placeholder="Qty" value="${escapeHtml(ing.qty!=null?fmtQty(ing.qty):'')}">
+          <input class="rv-edit-input rv-edit-unit" data-ing-field="unit" placeholder="Unit" value="${escapeHtml(ing.unit||'')}">
+          <input class="rv-edit-input rv-edit-item" data-ing-field="item" placeholder="Ingredient" value="${escapeHtml(ing.item||'')}">
+          <button class="rv-edit-done" data-ing-save="${idx}" aria-label="Save"><i data-lucide="check"></i></button>
+        </div>`;
+        return `<div class="rv-ing rv-check-row${ingChecked[idx]?' done':''}" data-ing-row="${idx}">
+          <button class="rv-circle${ingChecked[idx]?' on':''}" data-ing-toggle="${idx}" aria-label="${ingChecked[idx]?'Mark not done':'Mark done'}"></button>
+          <span class="rv-check-text" data-ing-edit="${idx}">${escapeHtml(fmtIngredient(ing))}</span>
+        </div>`;
+      }).join('') : '<div class="rv-ing" style="color:var(--muted)">None listed</div>';
+      lucide.createIcons();
+      wrap.querySelectorAll('[data-ing-toggle]').forEach(b => b.onclick = ()=>{
+        const idx = Number(b.dataset.ingToggle);
+        ingChecked[idx] = !ingChecked[idx];
+        renderIngList();
+      });
+      wrap.querySelectorAll('[data-ing-edit]').forEach(s => s.onclick = ()=>{
+        if(!saved && o.suggIdx == null) return; // nothing sensible to save an edit onto
+        editingIng = Number(s.dataset.ingEdit);
+        renderIngList();
+        wrap.querySelector('.rv-edit-qty')?.focus();
+      });
+      wrap.querySelectorAll('[data-ing-save]').forEach(b => b.onclick = ()=>{
+        const idx = Number(b.dataset.ingSave);
+        const row = b.closest('[data-ing-row]');
+        const qty = parseQtyToken(row.querySelector('[data-ing-field="qty"]').value.trim());
+        const unit = row.querySelector('[data-ing-field="unit"]').value.trim().toLowerCase() || null;
+        const item = row.querySelector('[data-ing-field="item"]').value.trim();
+        if(item) r.ingredients[idx] = {qty, unit, item};
+        editingIng = null;
+        persistRecipeEdit();
+        renderIngList();
+      });
+    }
+    function renderStepList(){
+      const wrap = document.getElementById('rv-step-list');
+      const items = (r.steps||[]).map((s,idx)=>({s,idx})).sort((a,b)=>stepChecked[a.idx]-stepChecked[b.idx]);
+      wrap.innerHTML = items.length ? items.map(({s,idx}) => {
+        if(editingStep === idx) return `<div class="rv-edit-row" data-step-row="${idx}">
+          <textarea class="rv-edit-input rv-edit-step" data-step-field="text" rows="2">${escapeHtml(s)}</textarea>
+          <button class="rv-edit-done" data-step-save="${idx}" aria-label="Save"><i data-lucide="check"></i></button>
+        </div>`;
+        return `<div class="rv-step rv-check-row${stepChecked[idx]?' done':''}" data-step-row="${idx}">
+          <button class="rv-circle${stepChecked[idx]?' on':''}" data-step-toggle="${idx}" aria-label="${stepChecked[idx]?'Mark not done':'Mark done'}"></button>
+          <span class="rv-check-text" data-step-edit="${idx}"><b>${idx+1}.</b> ${escapeHtml(s)}</span>
+        </div>`;
+      }).join('') : '<div class="rv-ing" style="color:var(--muted)">None listed</div>';
+      lucide.createIcons();
+      wrap.querySelectorAll('[data-step-toggle]').forEach(b => b.onclick = ()=>{
+        const idx = Number(b.dataset.stepToggle);
+        stepChecked[idx] = !stepChecked[idx];
+        renderStepList();
+      });
+      wrap.querySelectorAll('[data-step-edit]').forEach(s => s.onclick = ()=>{
+        if(!saved && o.suggIdx == null) return;
+        editingStep = Number(s.dataset.stepEdit);
+        renderStepList();
+        wrap.querySelector('.rv-edit-step')?.focus();
+      });
+      wrap.querySelectorAll('[data-step-save]').forEach(b => b.onclick = ()=>{
+        const idx = Number(b.dataset.stepSave);
+        const row = b.closest('[data-step-row]');
+        const text = row.querySelector('[data-step-field="text"]').value.trim();
+        if(text) r.steps[idx] = text;
+        editingStep = null;
+        persistRecipeEdit();
+        renderStepList();
+      });
+    }
+    renderIngList();
+    renderStepList();
   });
 }
 function deleteRecipe(r, backTo){
@@ -3609,7 +3643,7 @@ function _groceryViewHTML(mp){
     <button class="g-share-btn" id="g-share" aria-label="Share list"><i data-lucide="share-2"></i></button>
   </div>`;
   if(got){
-    html += `<div style="text-align:right;padding:0 22px 8px"><button class="wb-clear" id="g-new-week">Start new week — clear ${got} gotten item${got===1?'':'s'}</button></div>`;
+    html += `<button class="g-newweek-btn" id="g-new-week"><i data-lucide="refresh-cw"></i>Start new week — clear ${got} gotten item${got===1?'':'s'}</button>`;
   }
   const unchecked = items.filter(i=>!i.checked);
   const checked = items.filter(i=>i.checked);
@@ -3798,10 +3832,6 @@ function _bindMealHandlers(mp){
     });
     renderMeals();
   }));
-  document.querySelectorAll('[data-rc-cook]').forEach(el => el.addEventListener('click', e => {
-    e.stopPropagation();
-    markRecipeCooked(el.dataset.rcCook);
-  }));
   const clear = document.getElementById('mp-clear');
   if(clear) clear.onclick = ()=>{
     const n = (mp.activeRecipeIds||[]).length;
@@ -3886,53 +3916,8 @@ async function runParseFlow(text, btn, errEl, restoreHTML, sourceUrl){
     lucide.createIcons();
   }
 }
-// Photo import: the vision model's job is a rough verbatim transcription of
-// the photo, not structuring — the transcription is fed through the exact
-// same /parse pipeline (and the same review-before-save sheet) as pasted
-// text, so a caption model's imprecision gets the same human check every
-// other entry path already gets.
-async function runImageParseFlow(imageDataUrl, btn, errEl, restoreHTML){
-  if(MEAL_PROXY_URL.includes('YOUR-SUBDOMAIN')){
-    errEl.textContent = 'The meal-prep-proxy Worker is not deployed yet.';
-    errEl.style.display = 'block'; return;
-  }
-  btn.disabled = true; btn.textContent = 'Reading photo…';
-  try{
-    const data = await proxyPost('/parse-image', {imageBase64: imageDataUrl, existingProteins: proteinOptions()}, 45000);
-    openParseReviewSheet(data.recipe, data.via);
-  }catch(e){
-    errEl.textContent = e.name==='AbortError' ? 'That took too long — try a smaller or clearer photo' : e.message;
-    errEl.style.display = 'block';
-    btn.disabled = false; btn.innerHTML = restoreHTML;
-    lucide.createIcons();
-  }
-}
-// Downscales a picked/captured photo before it ever leaves the device —
-// phone camera photos are routinely 4-12MB, which is slow to upload and
-// wasteful to run through a vision model. 1600px on the long edge keeps
-// recipe-card-sized text readable while keeping the request small and fast.
-function downscaleImageFile(file, maxDim, quality){
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    const url = URL.createObjectURL(file);
-    img.onload = () => {
-      URL.revokeObjectURL(url);
-      let {width, height} = img;
-      if(width > maxDim || height > maxDim){
-        const scale = maxDim / Math.max(width, height);
-        width = Math.round(width*scale); height = Math.round(height*scale);
-      }
-      const canvas = document.createElement('canvas');
-      canvas.width = width; canvas.height = height;
-      canvas.getContext('2d').drawImage(img, 0, 0, width, height);
-      resolve(canvas.toDataURL('image/jpeg', quality));
-    };
-    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Could not read that photo')); };
-    img.src = url;
-  });
-}
 function openAddRecipeSheet(){
-  // Four peer entry methods as tabs; panes stay in the DOM so switching
+  // Three peer entry methods as tabs; panes stay in the DOM so switching
   // tabs never loses half-typed input. "Enter manually" embeds the same
   // shared form the parse-review and edit screens use.
   const manualForm = recipeFormParts({}, 'manual');
@@ -3945,7 +3930,6 @@ function openAddRecipeSheet(){
     <div class="chips">
       <div class="chip sel" data-ar-tab="link">From a link</div>
       <div class="chip" data-ar-tab="paste">Paste text</div>
-      <div class="chip" data-ar-tab="photo">From a photo</div>
       <div class="chip" data-ar-tab="manual">Enter manually</div>
     </div>
     <div class="ar-pane" id="ar-pane-link">
@@ -3962,47 +3946,17 @@ function openAddRecipeSheet(){
       <div class="rc-none err" id="pp-err" style="display:none;margin:0"></div>
       <button class="btn-primary" id="pp-parse"><i data-lucide="wand-2"></i>Parse it</button>
     </div>
-    <div class="ar-pane hidden" id="ar-pane-photo">
-      <div class="seg-lbl">Photo of the recipe</div>
-      <div class="toggle-sub" style="margin:-4px 2px 8px">Experimental — the reader often misreads or invents details, especially with small or dense text. Treat the result as a rough draft and check every field before saving.</div>
-      <input type="file" accept="image/*" capture="environment" id="pp-photo-input" style="display:none">
-      <button class="rc-btn add" id="pp-photo-pick" style="width:100%"><i data-lucide="camera"></i>&nbsp;Choose a photo</button>
-      <div id="pp-photo-preview" style="display:none;margin-top:10px">
-        <img id="pp-photo-img" class="pp-photo-img">
-        <button class="btn-primary" id="pp-photo-parse" style="margin-top:10px"><i data-lucide="wand-2"></i>Parse photo</button>
-      </div>
-      <div class="rc-none err" id="pp-photo-err" style="display:none;margin-top:10px"></div>
-    </div>
     <div class="ar-pane hidden" id="ar-pane-manual">${manualForm.html}</div>`,
   ()=>{
     document.getElementById('sh-close').onclick = closeSheet;
     document.querySelectorAll('[data-ar-tab]').forEach(el => el.addEventListener('click', ()=>{
       document.querySelectorAll('[data-ar-tab]').forEach(e => e.classList.toggle('sel', e===el));
-      ['link','paste','photo','manual'].forEach(t =>
+      ['link','paste','manual'].forEach(t =>
         document.getElementById('ar-pane-'+t).classList.toggle('hidden', t!==el.dataset.arTab));
     }));
     manualForm.bind();
     const errEl = document.getElementById('pp-err');
     const urlErrEl = document.getElementById('pp-url-err');
-    const photoErrEl = document.getElementById('pp-photo-err');
-    let photoDataUrl = null;
-    document.getElementById('pp-photo-pick').onclick = ()=> document.getElementById('pp-photo-input').click();
-    document.getElementById('pp-photo-input').addEventListener('change', async e => {
-      const file = e.target.files?.[0]; if(!file) return;
-      photoErrEl.style.display = 'none';
-      try{
-        photoDataUrl = await downscaleImageFile(file, 1600, 0.85);
-        document.getElementById('pp-photo-img').src = photoDataUrl;
-        document.getElementById('pp-photo-preview').style.display = 'block';
-      }catch(err){
-        photoErrEl.textContent = err.message || 'Could not read that photo';
-        photoErrEl.style.display = 'block';
-      }
-    });
-    document.getElementById('pp-photo-parse').onclick = ()=>{
-      if(!photoDataUrl) return;
-      runImageParseFlow(photoDataUrl, document.getElementById('pp-photo-parse'), photoErrEl, '<i data-lucide="wand-2"></i>Parse photo');
-    };
     document.getElementById('pp-parse').onclick = ()=>{
       errEl.style.display = 'none';
       const text = document.getElementById('pp-text').value.trim();
@@ -4035,6 +3989,15 @@ function openAddRecipeSheet(){
 // live across title/protein/style; the basket button behaves exactly like
 // "+ Add to week" on the main screen (week set + grocery consolidation).
 function openRecipeSearchSheet(focusSearch, initialQuery){
+  // Single-select per axis, combined with each other AND the text search —
+  // tap a chip again to clear it. Protein options are every distinct tag
+  // actually in the cookbook (not the meal-planning seed list, which would
+  // show tags with zero saved recipes in a filter context); style options
+  // are the fixed 4 prep styles.
+  let selProtein = null, selStyle = null;
+  const proteinChips = [...new Set(mealRecipes.map(r => r.protein).filter(Boolean))]
+    .sort((a,b) => a.localeCompare(b));
+
   function rowHTML(r){
     const inWeek = (S.mealPrep?.activeRecipeIds || []).includes(r.id);
     const meta = [r.serves ? `Serves ${r.serves}` : '', r.minutes ? `${r.minutes} min` : '', r.source==='ai' ? 'AI' : ''].filter(Boolean).join(' · ');
@@ -4050,10 +4013,15 @@ function openRecipeSearchSheet(focusSearch, initialQuery){
       </button>
     </div>`;
   }
+  function matches(r, q){
+    return recipeMatchesQuery(r, q)
+      && (!selProtein || normalizeProtein(r.protein||'') === normalizeProtein(selProtein))
+      && (!selStyle || (Array.isArray(r.styles) && r.styles.includes(selStyle)));
+  }
   function listHTML(q){
-    const rows = mealRecipes.filter(r => recipeMatchesQuery(r, q));
+    const rows = mealRecipes.filter(r => matches(r, q));
     if(!mealRecipes.length) return `<div class="rc-none" style="margin:0">Nothing saved yet — paste a recipe or adopt an AI suggestion.</div>`;
-    if(!rows.length) return `<div class="rc-none" style="margin:0">No recipes match “${escapeHtml(q)}”.</div>`;
+    if(!rows.length) return `<div class="rc-none" style="margin:0">Nothing matches${q?` “${escapeHtml(q)}”`:''}${selProtein||selStyle?' with these filters':''}.</div>`;
     return rows.map(rowHTML).join('');
   }
   function bindRows(){
@@ -4071,6 +4039,14 @@ function openRecipeSearchSheet(focusSearch, initialQuery){
       if(currentTab === 'meals') renderMeals(); // keep the weekbar behind the sheet current
     }));
   }
+  const filterChipsHTML = (proteinChips.length || MEAL_STYLES.length) ? `<div class="rs-filters">
+    ${proteinChips.length ? `<div class="pk-row" id="rs-protein-chips">
+      ${proteinChips.map(p => `<button class="pk-chip${selProtein===p?' on':''}" data-rs-protein="${escapeHtml(p)}">${escapeHtml(p)}</button>`).join('')}
+    </div>` : ''}
+    <div class="pk-row" id="rs-style-chips">
+      ${MEAL_STYLES.map(s => `<button class="pk-chip${selStyle===s.id?' on':''}" data-rs-style="${s.id}">${s.name}</button>`).join('')}
+    </div>
+  </div>` : '';
   openSheet(`
     <div class="grabber"></div>
     <div class="sheet-head">
@@ -4078,15 +4054,27 @@ function openRecipeSearchSheet(focusSearch, initialQuery){
       <button class="sheet-close" id="sh-close"><i data-lucide="x"></i></button>
     </div>
     <input class="plain-input" id="rs-q" placeholder="Search title, protein, style…" autocomplete="off" value="${escapeHtml(initialQuery||'')}">
+    ${filterChipsHTML}
     <div id="rs-list">${listHTML(initialQuery||'')}</div>`,
   ()=>{
     document.getElementById('sh-close').onclick = closeSheet;
     const q = document.getElementById('rs-q');
-    q.addEventListener('input', ()=>{
+    const refresh = ()=>{
       document.getElementById('rs-list').innerHTML = listHTML(q.value.trim());
       lucide.createIcons();
       bindRows();
-    });
+    };
+    q.addEventListener('input', refresh);
+    document.querySelectorAll('[data-rs-protein]').forEach(el => el.addEventListener('click', ()=>{
+      selProtein = selProtein === el.dataset.rsProtein ? null : el.dataset.rsProtein;
+      document.querySelectorAll('[data-rs-protein]').forEach(e => e.classList.toggle('on', e.dataset.rsProtein===selProtein));
+      refresh();
+    }));
+    document.querySelectorAll('[data-rs-style]').forEach(el => el.addEventListener('click', ()=>{
+      selStyle = selStyle === el.dataset.rsStyle ? null : el.dataset.rsStyle;
+      document.querySelectorAll('[data-rs-style]').forEach(e => e.classList.toggle('on', e.dataset.rsStyle===selStyle));
+      refresh();
+    }));
     bindRows();
     if(focusSearch) q.focus();
   });

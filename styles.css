@@ -1081,6 +1081,8 @@ body.meals .sheet-date-input{color-scheme:light}
 .style-current .n{flex:1;font-weight:600;font-size:14px;color:var(--sky-deep)}
 .style-current .chg{font-size:12px;font-weight:600;color:var(--muted);display:flex;align-items:center;gap:3px}
 .pk-row{display:flex;flex-wrap:wrap;gap:8px;padding:2px 16px}
+.rs-filters{display:flex;flex-direction:column;gap:6px;margin-top:-4px}
+.rs-filters .pk-row{padding:2px 0}
 .pk-chip{
   min-height:44px;padding:0 15px;border-radius:var(--r-input);
   border:1px solid var(--line);background:var(--card);color:var(--ink-soft);
@@ -1136,14 +1138,6 @@ body.meals .sheet-date-input{color-scheme:light}
   background:var(--sky-tint);border:1px solid var(--line);color:var(--ink-soft);
   font-size:11.5px;font-weight:600;
 }
-.rc-cook-btn{
-  display:inline-flex;align-items:center;gap:5px;margin-left:auto;
-  height:28px;padding:0 11px;border-radius:var(--r-pill);
-  background:var(--gold-soft);color:var(--gold);border:1px solid transparent;
-  font-size:11.5px;font-weight:600;
-}
-.rc-cook-btn svg{width:12px;height:12px}
-.rc-cook-btn:active{transform:scale(.95)}
 .rc-btns{display:flex;gap:8px;margin-top:11px}
 .rc-btn{
   flex:1;min-height:40px;border-radius:var(--r-pill);border:1px solid var(--line);
@@ -1177,11 +1171,39 @@ body.meals .sheet-date-input{color-scheme:light}
 .rv-ing{font-size:13.5px;color:var(--ink);padding:8px 12px;background:var(--sky-tint);border:1px solid var(--line);border-radius:10px}
 .rv-step{font-size:13.5px;color:var(--ink);line-height:1.5;padding:8px 12px}
 .rv-step b{color:var(--sky-deep);font-weight:650}
-/* checkable ingredient/step rows: tick as you cook, ephemeral per view */
-.rv-check{display:flex;align-items:flex-start;gap:10px;cursor:pointer}
-.rv-check input{width:18px;height:18px;flex:0 0 18px;margin-top:1px;accent-color:var(--sky-deep)}
-.rv-check.done{opacity:.5}
-.rv-check.done span{text-decoration:line-through}
+/* checkable ingredient/step rows: circle toggles + sinks to the bottom of
+   its list (grocery-list pattern); the text is a SEPARATE tap target that
+   opens inline editing — the two actions must never overlap. */
+.rv-check-row{display:flex;align-items:flex-start;gap:10px}
+.rv-circle{
+  width:20px;height:20px;border-radius:50%;flex:0 0 20px;margin-top:1px;
+  border:1.5px solid var(--line-strong);background:transparent;
+}
+.rv-circle.on{background:var(--acc-grad);border-color:transparent;position:relative}
+.rv-circle.on::after{
+  content:"";position:absolute;inset:0;margin:auto;width:9px;height:6px;
+  border-left:2px solid var(--acc-ink);border-bottom:2px solid var(--acc-ink);
+  transform:translateY(-1px) rotate(-45deg);
+}
+.rv-check-text{flex:1;cursor:text}
+.rv-check-row.done{opacity:.5}
+.rv-check-row.done .rv-check-text{text-decoration:line-through}
+.rv-edit-row{display:flex;align-items:center;gap:6px}
+.rv-edit-input{
+  border:1px solid var(--acc-a);border-radius:8px;background:var(--sky-tint);
+  padding:7px 9px;font-size:13px;font-weight:500;color:var(--ink);font-family:var(--font);
+}
+.rv-edit-qty{flex:0 0 52px;width:52px;text-align:center}
+.rv-edit-unit{flex:0 0 62px;width:62px}
+.rv-edit-item{flex:1;min-width:0}
+.rv-edit-step{flex:1;min-width:0;resize:none}
+.rv-edit-done{
+  width:32px;height:32px;flex:0 0 32px;border-radius:50%;
+  background:var(--acc-grad);color:var(--acc-ink);
+  display:flex;align-items:center;justify-content:center;
+}
+.rv-edit-done svg{width:15px;height:15px}
+.rv-edit-done:active{transform:scale(.92)}
 .plain-input{
   width:100%;height:48px;border:1px solid var(--line);border-radius:var(--r-input);
   background:var(--sky-tint);padding:0 14px;font-weight:500;font-size:16px;color:var(--ink);
@@ -1228,7 +1250,6 @@ body.meals .sheet-date-input{color-scheme:light}
 /* Add-a-recipe sheet: tab panes (kept in DOM so typed input survives tab switches) */
 .ar-pane{display:flex;flex-direction:column;gap:14px}
 .ar-pane.hidden{display:none}
-.pp-photo-img{display:block;width:100%;border-radius:var(--r-card);border:1px solid var(--line)}
 
 /* ── Meals: grocery list (stage 5) ───────────────────────────── */
 .g-item{
@@ -1279,6 +1300,15 @@ body.meals .sheet-date-input{color-scheme:light}
 .g-share-btn svg{width:13px;height:13px}
 .g-share-btn:active{transform:scale(.92)}
 .g-aisle-hdr{margin:16px 22px 6px;font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.g-newweek-btn{
+  display:flex;align-items:center;justify-content:center;gap:8px;
+  width:calc(100% - 32px);margin:2px 16px 4px;height:48px;
+  background:var(--green-soft);color:var(--green);border:1px solid transparent;
+  border-radius:var(--r-pill);font-weight:650;font-size:13.5px;
+  transition:transform .12s;
+}
+.g-newweek-btn svg{width:15px;height:15px}
+.g-newweek-btn:active{transform:scale(.97)}
 .rc-hidden-row{
   display:block;width:calc(100% - 32px);margin:10px 16px 0;padding:11px 14px;
   border:1px dashed var(--line-strong);border-radius:var(--r-card);
