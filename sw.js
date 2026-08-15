@@ -6,7 +6,7 @@
 // (Firestore, auth, the FSQ proxy, OSRM, Nominatim…) passes straight through
 // untouched. SWR means the first launch after a deploy can still show the
 // previous version — the refreshed shell lands on the next open.
-const CACHE = 'ht-shell-v1';
+const CACHE = 'ht-shell-v2';
 
 const SHELL = [
   '/',

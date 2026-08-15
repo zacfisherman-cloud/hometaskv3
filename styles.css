@@ -85,7 +85,7 @@ button{font-family:var(--font);cursor:pointer;border:none;background:none;color:
 input,textarea,select{font-family:var(--font);outline:none}
 a{color:inherit;text-decoration:none}
 button,a,[class$="-tile"],[class$="-row"]{touch-action:manipulation}
-.ni,.tv-chip,.chip,.badge,.mh-tab{user-select:none;-webkit-user-select:none}
+.ni,.tv-chip,.chip,.badge{user-select:none;-webkit-user-select:none}
 
 /* ── shell ───────────────────────────────────────────────────── */
 #root{
@@ -155,20 +155,15 @@ button,a,[class$="-tile"],[class$="-row"]{touch-action:manipulation}
 .setup-foot b{color:var(--ink-soft);font-weight:600}
 
 /* ── headers (single .tasks-hdr definition — dedup done) ─────── */
+/* On the Tasks list this card is the first child of #panel and scrolls away
+   with the list; on Rooms/Calendar/History (.compact) it sits static in #hdr. */
 .tasks-hdr{
-  flex:0 0 auto;padding:calc(env(safe-area-inset-top) + 14px) 24px 18px;
+  padding:calc(env(safe-area-inset-top) + 14px) 24px 18px;
   background:var(--hdr-sky);
   border-radius:0 0 30px 30px;color:var(--ink);
   border-bottom:1px solid var(--line);
-  overflow:hidden;will-change:height;
-  transition:height .32s cubic-bezier(.4,0,.2,1), padding .32s cubic-bezier(.4,0,.2,1), border-radius .32s ease;
+  overflow:hidden;
 }
-.tasks-hdr .hh-top,
-.tasks-hdr .hero-ring,
-.tasks-hdr .hero-sub{transition:opacity .24s ease, transform .32s cubic-bezier(.4,0,.2,1)}
-.tasks-hdr.collapsing .hh-top,
-.tasks-hdr.collapsing .hero-ring,
-.tasks-hdr.collapsing .hero-sub{opacity:0;transform:translateY(-10px);pointer-events:none}
 
 .hh-top{display:flex;align-items:center;justify-content:space-between}
 .hh-hello{font-size:13px;font-weight:450;color:var(--ink-soft);line-height:1;display:flex;align-items:center;gap:7px}
@@ -219,49 +214,6 @@ button,a,[class$="-tile"],[class$="-row"]{touch-action:manipulation}
 .flat-hdr-sub{font-size:12.5px;font-weight:450;color:var(--ink-soft);margin-top:4px}
 .flat-hdr-icon{width:44px;height:44px;border-radius:50%;border:1px solid var(--line-strong);background:var(--sky-tint);display:flex;align-items:center;justify-content:center}
 .flat-hdr-icon svg{width:20px;height:20px;color:var(--sky-deep)}
-
-/* mini floating header (scroll-collapsed state) */
-#mini-hdr{
-  position:absolute;top:0;left:0;right:0;z-index:45;
-  padding:calc(env(safe-area-inset-top) + 8px) 16px 12px;
-  background:var(--hdr-glass);
-  -webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);
-  border-radius:0 0 22px 22px;
-  border-bottom:1px solid var(--line);
-  display:flex;align-items:center;justify-content:space-between;gap:12px;
-  opacity:0;transform:translateY(-110%);
-  transition:transform .32s cubic-bezier(.4,0,.2,1), opacity .24s ease;
-  pointer-events:none;
-}
-#mini-hdr.visible{transform:translateY(0);pointer-events:auto;opacity:1}
-/* The mini-header carries its own Tasks/Rooms toggle + add button — the
-   in-panel toggle row must never be visible at the same time (double-toggle
-   guard: a scrollTop clamp can leave the panel at the top while collapsed). */
-#mini-hdr.visible ~ #panel .tasks-view-row{visibility:hidden}
-.mh-tabs{display:flex;gap:4px;background:var(--sky-tint);border:1px solid var(--line);border-radius:var(--r-pill);padding:4px}
-.mh-tab{
-  height:36px;padding:0 16px;border-radius:var(--r-pill);
-  font-weight:600;font-size:13px;color:var(--muted);
-  display:flex;align-items:center;gap:6px;white-space:nowrap;
-}
-.mh-tab.active{background:var(--sky-soft);color:var(--sky-deep)}
-.mh-tab svg{width:15px;height:15px}
-.mh-actions{display:flex;align-items:center;gap:8px}
-.mh-hist-btn{
-  width:44px;height:44px;flex:0 0 44px;border-radius:50%;
-  background:var(--sky-tint);border:1px solid var(--line);color:var(--muted);
-  display:flex;align-items:center;justify-content:center;transition:transform .12s;
-}
-.mh-hist-btn:active{transform:scale(.94)}
-.mh-hist-btn svg{width:18px;height:18px}
-.mh-add-btn{
-  width:44px;height:44px;flex:0 0 44px;border-radius:50%;
-  background:var(--acc-grad);color:var(--acc-ink);
-  display:flex;align-items:center;justify-content:center;
-  box-shadow:var(--glow-acc);transition:transform .12s;
-}
-.mh-add-btn:active{transform:scale(.94)}
-.mh-add-btn svg{width:20px;height:20px}
 
 /* ── day group headers ───────────────────────────────────────── */
 .day-header{display:flex;align-items:center;justify-content:space-between;padding:18px 22px 10px}
@@ -378,22 +330,35 @@ button,a,[class$="-tile"],[class$="-row"]{touch-action:manipulation}
 .ni.active .ni-ic{background:var(--sky-soft)}
 
 /* ── tasks sub-view toggle row ───────────────────────────────── */
-.tasks-view-row{display:flex;align-items:center;justify-content:space-between;padding:16px 14px 4px;gap:8px}
+/* Sticky within #panel: once the percentage card scrolls past, this row pins
+   to the top of the scroller. Opaque bg so list cards don't bleed through;
+   z-index above card bodies (.tc-inner z:1), below #bnav (z:50). */
+.tasks-view-row{
+  display:flex;align-items:center;justify-content:space-between;padding:16px 14px 4px;gap:8px;
+  position:sticky;top:0;z-index:20;background:var(--bg);
+}
+/* Tasks-list only: when the card is locked away, the row is the topmost thing
+   under the notch, so it takes the safe-area inset as top padding and a soft
+   edge. Other sub-views pin below the compact #hdr and never get this. */
+.tasks-view-row.pinned-hero{
+  padding-top:calc(env(safe-area-inset-top) + 12px);
+  box-shadow:0 6px 14px rgba(0,0,0,.06);
+}
 .tasks-view-chips{display:flex;gap:3px;background:var(--card);border:1px solid var(--line);border-radius:var(--r-pill);padding:4px}
 .tv-chip{
-  height:36px;padding:0 12px;border-radius:var(--r-pill);
+  min-height:44px;padding:0 12px;border-radius:var(--r-pill);
   font-weight:600;font-size:12.5px;color:var(--muted);
-  display:flex;align-items:center;gap:5px;white-space:nowrap;
+  display:flex;align-items:center;justify-content:center;gap:5px;white-space:nowrap;
 }
 .tv-chip svg{width:15px;height:15px;flex:0 0 auto}
 .tv-chip.sel{background:var(--sky-soft);color:var(--sky-deep)}
-/* On most phone widths, three text chips + the action buttons overflow the
-   row — collapse the unselected chips to icons so the selected one keeps its
-   label and everything still fits. The largest phones (≥414px) show all three
-   labels. */
-@media (max-width:413px){
-  .tasks-view-chips:has(.tv-chip:nth-child(3)) .tv-chip:not(.sel){padding:0 10px}
-  .tasks-view-chips:has(.tv-chip:nth-child(3)) .tv-chip:not(.sel) .tv-chip-lbl{display:none}
+/* Every iPhone in portrait is ≤430pt, so at that width all three segments go
+   icon-only (equal thirds, so the active pill never changes width when the
+   selection moves). Above 430px (tablet/desktop) the labels return. */
+@media (max-width:430px){
+  .tasks-view-chips{flex:1 1 auto;min-width:0}
+  .tv-chip{flex:1 1 0;padding:0 6px}
+  .tv-chip-lbl{display:none}
 }
 .tab-add-btn{
   width:44px;height:44px;border-radius:50%;flex:0 0 44px;

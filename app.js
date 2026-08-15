@@ -352,9 +352,6 @@ function showTaskButtons(){
   return lsGet('ht-task-buttons')==='1' || !('ontouchstart' in window);
 }
 
-// Permanently-compact Tasks header (per-device): the mini glass bar replaces
-// the big greeting header entirely, and scroll-collapse is switched off.
-function alwaysCompactHdr(){ return lsGet('ht-hdr-compact')==='1'; }
 
 /* ── theme: light is the permanent default at all hours. Dark is a
    manual opt-in from Settings only — the old time-of-day auto-switch
@@ -424,32 +421,15 @@ function ringHTML(pct, size=150, sw=3){
 }
 
 /* ════════════════════════════════════════ TASKS TAB */
-function updateMiniHdr(){
-  const isRooms = tasksSubView==='rooms'||tasksSubView==='roomDetail';
-  const isCal   = tasksSubView==='calendar';
-  document.getElementById('mh-tasks-btn')?.classList.toggle('active', !isRooms && !isCal);
-  document.getElementById('mh-rooms-btn')?.classList.toggle('active', isRooms);
-  document.getElementById('mh-calendar-btn')?.classList.toggle('active', isCal);
-}
-
 function renderTasks(){
   const inRooms = tasksSubView==='rooms'||tasksSubView==='roomDetail';
   const inHist  = tasksSubView==='history';
   const inCal   = tasksSubView==='calendar';
   const prog = weekProgress();
-  if(alwaysCompactHdr()){
-    // Permanent mini state: no big header at all, the glass bar is always on
-    // and the in-panel toggle row is skipped (_tabsRowHTML returns '').
-    isHdrCollapsed = false;
-    document.getElementById('hdr').innerHTML = '';
-    const miniHdr = document.getElementById('mini-hdr');
-    miniHdr.classList.add('visible');
-    document.getElementById('panel').style.paddingTop = miniHdr.offsetHeight + 'px';
-  } else if(inRooms || inHist || inCal){
-    // Rooms, Completed-history and Calendar get the compact, static header: the
-    // weekly ring is Tasks-view context, and the collapsing behavior has
-    // nowhere to go on these views — it caused a visible layout glitch. A
-    // one-line count keeps the context.
+  if(inRooms || inHist || inCal){
+    // Rooms, Completed-history and Calendar keep the compact, static header in
+    // #hdr (outside the scroller): the weekly ring is Tasks-list context and
+    // has no place on these grids. A one-line count keeps the context.
     const sub = inHist
       ? `<b>${(S.completedLog||[]).length}</b> completed all-time`
       : inCal
@@ -466,34 +446,10 @@ function renderTasks(){
         </div>
         <div class="compact-sub">${sub}</div>
       </div>`;
-    // The compact header never collapses — clear any collapse state carried
-    // over from the Tasks list (e.g. arriving via the mini-header's Rooms tab).
-    isHdrCollapsed = false;
-    document.getElementById('mini-hdr')?.classList.remove('visible');
-    const panel = document.getElementById('panel');
-    panel.style.paddingTop = '';
   } else {
-    document.getElementById('hdr').innerHTML = `
-      <div class="tasks-hdr">
-        <div class="hh-top">
-          <div>
-            <div class="hh-hello">${greeting()}</div>
-            <div class="hh-name">${escapeHtml(myName())}</div>
-          </div>
-          <div class="hh-avatar">${escapeHtml((myName()||'?')[0].toUpperCase())}</div>
-        </div>
-        <div class="hero-ring">${ringHTML(prog.pct)}<div class="ring-in"><b>${prog.pct}</b><span>% together</span></div></div>
-        <div class="hero-sub"><b>${prog.done} of ${prog.total}</b> · ${weekLabel(getWeekStart())}</div>
-      </div>`;
-    // Re-apply collapsed state without transition after the header DOM is rebuilt
-    if(isHdrCollapsed){
-      const hdr = document.querySelector('#hdr .tasks-hdr');
-      if(hdr){
-        hdr.style.transition='none'; hdr.style.height='0';
-        hdr.style.paddingTop='0px'; hdr.style.paddingBottom='0px'; // border-box floor — see initScrollCollapse
-        hdr.classList.add('collapsing');
-      }
-    }
+    // Tasks list: the percentage card now lives INSIDE #panel (rendered by
+    // _renderTasksPanel) so it genuinely scrolls away. #hdr is empty here.
+    document.getElementById('hdr').innerHTML = '';
   }
   lucide.createIcons();
   if(inHist)                                      _renderHistoryPanel();
@@ -501,51 +457,34 @@ function renderTasks(){
   else if(tasksSubView==='rooms')                 _renderRoomsPanel();
   else if(tasksSubView==='roomDetail'&&currentRoomDetail) _renderRoomDetailPanel(currentRoomDetail);
   else                                            _renderTasksPanel();
-  updateMiniHdr();
-  // A re-render can shrink the list under a collapsed header (task completed,
-  // partner sync): the browser clamps scrollTop toward 0, and those clamp
-  // events are swallowed by panelScrollGuardUntil — stranding the mini-header
-  // stacked over the in-panel Tasks/Rooms toggle row with no scroll room left
-  // to ever expand out of it. Snap instantly back to the expanded state
-  // whenever the collapsed state no longer matches the real scroll position.
-  if(isHdrCollapsed){
-    const panel = document.getElementById('panel');
-    if(panel.scrollTop <= 60 || panel.scrollHeight - panel.clientHeight <= 60){
-      isHdrCollapsed = false;
-      const hdr = document.querySelector('#hdr .tasks-hdr');
-      if(hdr){
-        hdr.classList.remove('collapsing');
-        hdr.style.transition='none';
-        hdr.style.height=''; hdr.style.paddingTop=''; hdr.style.paddingBottom='';
-      }
-      document.getElementById('mini-hdr')?.classList.remove('visible');
-      panel.style.transition='none';
-      panel.style.paddingTop='';
-      requestAnimationFrame(()=>{ panel.style.transition=''; if(hdr) hdr.style.transition=''; });
-    }
-  }
 }
 function _tabsRowHTML(activeTab){
-  // Permanent-compact mode: the mini bar already provides tabs, history and
-  // add — an in-panel copy would just duplicate it (the double-toggle bug).
-  if(alwaysCompactHdr()) return '';
+  // Order: Tasks · Calendar · Rooms. Segments are string-keyed (tasksSubView),
+  // never a persisted index, so this order is presentation only.
   const t = activeTab==='tasks', r = activeTab==='rooms', c = activeTab==='calendar';
   return `<div class="tasks-view-row">
     <div class="tasks-view-chips">
-      <button class="tv-chip${t?' sel':''}" id="view-tasks"><i data-lucide="list-checks"></i><span class="tv-chip-lbl">Tasks</span></button>
-      <button class="tv-chip${r?' sel':''}" id="view-rooms"><i data-lucide="layout-grid"></i><span class="tv-chip-lbl">Rooms</span></button>
-      <button class="tv-chip${c?' sel':''}" id="view-calendar"><i data-lucide="calendar-days"></i><span class="tv-chip-lbl">Calendar</span></button>
+      <button class="tv-chip${t?' sel':''}" id="view-tasks" aria-label="Tasks"><i data-lucide="list-checks"></i><span class="tv-chip-lbl">Tasks</span></button>
+      <button class="tv-chip${c?' sel':''}" id="view-calendar" aria-label="Calendar"><i data-lucide="calendar-days"></i><span class="tv-chip-lbl">Calendar</span></button>
+      <button class="tv-chip${r?' sel':''}" id="view-rooms" aria-label="Rooms"><i data-lucide="layout-grid"></i><span class="tv-chip-lbl">Rooms</span></button>
     </div>
     <div class="tvr-actions">
       <button class="tab-hist-btn" id="hdr-hist" aria-label="Completed history"><i data-lucide="history"></i></button>
-      <button class="tab-add-btn" id="hdr-add"><i data-lucide="plus"></i></button>
+      <button class="tab-add-btn" id="hdr-add" aria-label="Add task"><i data-lucide="plus"></i></button>
     </div>
   </div>`;
 }
 function _bindTabListeners(){
   const a=document.getElementById('hdr-add'); if(a) a.onclick=openAddTaskSheet;
-  const t=document.getElementById('view-tasks'); if(t) t.onclick=()=>{ tasksSubView='tasks'; currentRoomDetail=null; renderTasks(); };
-  const r=document.getElementById('view-rooms'); if(r) r.onclick=()=>{ tasksSubView='rooms'; currentRoomDetail=null; renderTasks(); };
+  // Tapping the already-active Tasks segment scrolls the list back to the top,
+  // which is what brings the scrolled-away percentage card back (status-bar
+  // tap-to-top can't reach an inner scroller). See scrollPanelToTop.
+  const t=document.getElementById('view-tasks'); if(t) t.onclick=()=>{
+    if(tasksSubView==='tasks'){ scrollPanelToTop(); return; }
+    tasksSubView='tasks'; currentRoomDetail=null; heroLocked=false; renderTasks();
+    document.getElementById('panel').scrollTop = 0;
+  };
+  const r=document.getElementById('view-rooms'); if(r) r.onclick=()=>{ tasksSubView='rooms'; currentRoomDetail=null; renderTasks(); document.getElementById('panel').scrollTop = 0; };
   const c=document.getElementById('view-calendar'); if(c) c.onclick=()=>{
     tasksSubView='calendar'; currentRoomDetail=null; calWeekStart=getWeekStart(); renderTasks();
     document.getElementById('panel').scrollTop = 0;
@@ -557,13 +496,27 @@ function _bindTabListeners(){
     document.getElementById('panel').scrollTop = 0;
   };
 }
+function _heroCardHTML(){
+  const prog = weekProgress();
+  return `<div class="tasks-hdr" id="scroll-hero">
+    <div class="hh-top">
+      <div>
+        <div class="hh-hello">${greeting()}</div>
+        <div class="hh-name">${escapeHtml(myName())}</div>
+      </div>
+      <div class="hh-avatar">${escapeHtml((myName()||'?')[0].toUpperCase())}</div>
+    </div>
+    <div class="hero-ring">${ringHTML(prog.pct)}<div class="ring-in"><b>${prog.pct}</b><span>% together</span></div></div>
+    <div class="hero-sub"><b>${prog.done} of ${prog.total}</b> · ${weekLabel(getWeekStart())}</div>
+  </div>`;
+}
 function _renderTasksPanel(){
   const t = todayStr();
   const overdue  = S.tasks.filter(x=>x.dueDate<t).sort((a,b)=>a.dueDate.localeCompare(b.dueDate));
   const upcoming = S.tasks.filter(x=>x.dueDate>=t).sort((a,b)=>a.dueDate.localeCompare(b.dueDate));
   const byDate = {};
   upcoming.forEach(x=>{ (byDate[x.dueDate]=byDate[x.dueDate]||[]).push(x); });
-  let html = _tabsRowHTML('tasks');
+  let html = _heroCardHTML() + _tabsRowHTML('tasks');
   if(overdue.length){
     html += `<div class="day-header">
       <div class="day-label overdue-lbl">Overdue</div>
@@ -620,6 +573,22 @@ function _renderTasksPanel(){
   lucide.createIcons();
   _bindTabListeners();
   _bindTaskCards();
+  // Re-apply the one-way collapse across data re-renders (task done, partner
+  // sync). setPanelHTML captured scrollTop while the card was hidden, so the
+  // fresh (visible) card must be re-hidden synchronously to keep that scroll
+  // position valid — but if the shorter list has no runway left, just unlock.
+  if(heroLocked){
+    const panel = document.getElementById('panel');
+    const card  = document.getElementById('scroll-hero');
+    const row   = panel.querySelector('.tasks-view-row');
+    const maxScroll = panel.scrollHeight - panel.clientHeight;
+    if(maxScroll <= 0 || panel.scrollTop <= 0){
+      heroLocked = false;
+    } else if(card && row){
+      card.style.display = 'none';
+      row.classList.add('pinned-hero');
+    }
+  }
   const bulk = document.getElementById('overdue-bulk');
   if(bulk) bulk.onclick = ()=>{
     const n = S.tasks.filter(x=>x.dueDate<todayStr()).length;
@@ -2878,14 +2847,6 @@ function renderSettings(){
           <div class="toggle-slider"></div>
         </label>
       </div>
-      <div class="srow">
-        <div class="srow-icon"><i data-lucide="panel-top-close"></i></div>
-        <div class="srow-info"><div class="srow-label">Compact Tasks header</div><div class="srow-sub" id="s-hdr-sub">${alwaysCompactHdr() ? 'Mini bar always on' : 'Big header, shrinks on scroll'}</div></div>
-        <label class="toggle-switch">
-          <input type="checkbox" id="s-compact-hdr" ${alwaysCompactHdr()?'checked':''}>
-          <div class="toggle-slider"></div>
-        </label>
-      </div>
     </div>
     <div class="settings-card">
       <div class="srow" id="s-vetoed">
@@ -2988,11 +2949,6 @@ function renderSettings(){
     lsSet('ht-task-buttons', e.target.checked ? '1' : '0');
     const sub = document.getElementById('s-btns-sub');
     if(sub) sub.textContent = e.target.checked ? 'Shown on task cards' : 'Hidden — swipe cards instead';
-  });
-  document.getElementById('s-compact-hdr').addEventListener('change', e => {
-    lsSet('ht-hdr-compact', e.target.checked ? '1' : '0');
-    const sub = document.getElementById('s-hdr-sub');
-    if(sub) sub.textContent = e.target.checked ? 'Mini bar always on' : 'Big header, shrinks on scroll';
   });
   document.getElementById('s-vetoed').onclick = openVetoSheet;
   document.getElementById('s-delete-all').onclick = ()=>{
@@ -4466,11 +4422,57 @@ let tasksSubView = 'tasks'; // 'tasks' | 'rooms' | 'roomDetail' | 'history' | 'c
 // current week whenever the Calendar chip is tapped; paged by its prev/next.
 let calWeekStart = getWeekStart();
 let mealSubView = 'recipes'; // 'recipes' | 'grocery'
-let isHdrCollapsed = false;
+// Tasks-list one-way collapse: once the percentage card (#scroll-hero) has
+// scrolled fully out of view it is hidden and stays hidden — no re-expand on
+// scroll up — until the panel is clamped back to the very top.
+let heroLocked = false;
 const RENDERERS = {tasks:renderTasks, history:renderHistory, dates:renderDates, meals:renderMeals, settings:renderSettings};
 
+// Smooth-scroll the Tasks list to the top (respects reduced-motion). This is
+// the recovery affordance for the collapsed card: bound to the active Tasks
+// bottom-nav tab and the active Tasks segment. iOS status-bar tap-to-top does
+// not reach an inner overflow scroller, so this is the only reliable path back.
+function scrollPanelToTop(){
+  const panel = document.getElementById('panel');
+  if(!panel) return;
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  panel.scrollTo({top:0, behavior: reduce ? 'auto' : 'smooth'});
+  if(reduce) onHeroSettle(); // instant scroll may not fire scrollend
+}
+
+// Runs on scroll settle only (never mid-scroll), so we never write scrollTop
+// during iOS momentum. Locks the card away once fully passed; restores it only
+// when the clamped position is back at the top.
+function onHeroSettle(){
+  const panel = document.getElementById('panel');
+  if(!panel) return;
+  if(performance.now() < panelScrollGuardUntil) return; // programmatic restore in flight
+  if(currentTab !== 'tasks' || tasksSubView !== 'tasks') return;
+  const card = document.getElementById('scroll-hero');
+  const row  = panel.querySelector('.tasks-view-row');
+  if(!card || !row) return;
+  const max = Math.max(panel.scrollHeight - panel.clientHeight, 0);
+  const y = Math.min(Math.max(panel.scrollTop, 0), max); // clamp iOS rubber-band
+  if(!heroLocked){
+    const h = card.offsetHeight;
+    if(h > 0 && y >= h - 1){
+      heroLocked = true;
+      const before = row.offsetHeight;
+      card.style.display = 'none';
+      row.classList.add('pinned-hero');
+      const padDelta = row.offsetHeight - before; // safe-area padding added on pin
+      panel.scrollTop = y - h + padDelta;          // net-zero visual shift
+    }
+  } else if(y <= 0){
+    heroLocked = false;
+    card.style.display = '';
+    row.classList.remove('pinned-hero');
+    panel.scrollTop = 0;
+  }
+}
+
 function switchTab(tab){
-  isHdrCollapsed = false;
+  heroLocked = false;
   currentTab = tab;
   currentRoomDetail = null;
   tasksSubView = 'tasks';
@@ -4484,26 +4486,10 @@ function switchTab(tab){
   // Meals is day-only: the body class forces the day token set (dimmed at
   // night) for the tab AND its overlays. Other tabs keep global theming.
   document.body.classList.toggle('meals', tab==='meals');
-  // Reset header state instantly (no animation) when switching tabs
-  const prevHdr = document.querySelector('#hdr .tasks-hdr');
-  if(prevHdr){
-    prevHdr.style.transition='none'; prevHdr.style.height='';
-    prevHdr.style.paddingTop=''; prevHdr.style.paddingBottom='';
-    prevHdr.classList.remove('collapsing','scrolled');
-  }
   const panel = document.getElementById('panel');
-  panel.style.transition = 'none';
-  panel.style.paddingTop = '';
   panel.scrollTop = 0;
-  document.getElementById('mini-hdr')?.classList.remove('visible');
   document.querySelectorAll('.ni').forEach(n => n.classList.toggle('active', n.dataset.tab===tab));
   RENDERERS[tab]?.();
-  // Re-enable transitions after layout settles
-  requestAnimationFrame(() => {
-    panel.style.transition = '';
-    const hdr = document.querySelector('#hdr .tasks-hdr');
-    if(hdr) hdr.style.transition = '';
-  });
 }
 
 /* ════════════════════════════════════════ BOOT */
@@ -4674,144 +4660,30 @@ document.getElementById('setup-go').addEventListener('click', ()=>{
 });
 
 document.querySelectorAll('.ni').forEach(btn =>
-  btn.addEventListener('click', ()=> switchTab(btn.dataset.tab))
+  btn.addEventListener('click', ()=>{
+    // Tapping the already-active Tasks tab scrolls the list to the top (and
+    // thereby restores the collapsed percentage card) instead of re-rendering.
+    if(btn.dataset.tab==='tasks' && currentTab==='tasks' && tasksSubView==='tasks'){
+      scrollPanelToTop();
+    } else {
+      switchTab(btn.dataset.tab);
+    }
+  })
 );
 
 function initScrollCollapse(){
-  // Bind mini-header buttons (static in HTML, so bind once at boot)
-  const mhAdd = document.getElementById('mh-add-btn');
-  if(mhAdd) mhAdd.onclick = openAddTaskSheet;
-  const mhTasks = document.getElementById('mh-tasks-btn');
-  if(mhTasks) mhTasks.onclick = ()=>{ tasksSubView='tasks'; currentRoomDetail=null; renderTasks(); };
-  const mhRooms = document.getElementById('mh-rooms-btn');
-  if(mhRooms) mhRooms.onclick = ()=>{ tasksSubView='rooms'; currentRoomDetail=null; renderTasks(); };
-  const mhCal = document.getElementById('mh-calendar-btn');
-  if(mhCal) mhCal.onclick = ()=>{
-    tasksSubView='calendar'; currentRoomDetail=null; calWeekStart=getWeekStart(); renderTasks();
-    document.getElementById('panel').scrollTop = 0;
-  };
-  const mhHist = document.getElementById('mh-hist-btn');
-  if(mhHist) mhHist.onclick = ()=>{
-    tasksSubView='history'; currentRoomDetail=null; renderTasks();
-    document.getElementById('panel').scrollTop = 0;
-  };
-
-  const panel   = document.getElementById('panel');
-  const miniHdr = document.getElementById('mini-hdr');
-  const DURATION = 320;
-  let lastY = 0, upAccum = 0;
-  // While a collapse/expand transition is in flight, the panel's geometry
-  // (clientHeight, paddingTop) changes every frame and the browser clamps
-  // scrollTop to the moving bounds — firing scroll events that read exactly
-  // like user swipes. Flipping state off those mid-animation deltas is what
-  // bounced the header straight back open (the rubber-band jolt).
-  let hdrAnimUntil = 0;
-
-  function getHdr(){ return document.querySelector('#hdr .tasks-hdr'); }
-
-  // border-box height can never render below the element's own padding, and
-  // .tasks-hdr carries the safe-area inset in its padding-top (~50px on a
-  // notched phone, 0 in a desktop viewport). Animating height alone slammed
-  // into that padding floor partway down and stopped dead — the "header
-  // jumps on a real phone" bug. Padding must animate to 0 alongside height.
-  const HDR_TRANSITION = `height ${DURATION}ms cubic-bezier(.4,0,.2,1), padding ${DURATION}ms cubic-bezier(.4,0,.2,1), box-shadow ${DURATION}ms ease, border-radius ${DURATION}ms ease`;
-
-  function collapseHdr(){
-    if(isHdrCollapsed) return;
-    const hdr = getHdr(); if(!hdr) return;
-    // Collapsing grows the panel's viewport by the header's full height (the
-    // header is a flex sibling) and adds the mini-header's height as top
-    // padding. On a short list the collapsed layout's max scroll can't keep
-    // scrollTop past the toggle row — the browser clamps it the moment the
-    // header shrinks, which either re-expands mid-flight (jolt) or strands
-    // the mini-header stacked over the in-panel toggle (double toggle).
-    // Only collapse when the collapsed layout leaves real scroll runway:
-    // 60px collapse threshold + 60px expand accumulator + margin.
-    const maxScrollAfter = panel.scrollHeight + miniHdr.offsetHeight - (panel.clientHeight + hdr.offsetHeight);
-    if(maxScrollAfter < 130) return;
-    isHdrCollapsed = true;
-    hdrAnimUntil = performance.now() + DURATION + 80;
-    // Lock current pixel height, then animate height AND padding to 0
-    const fullH = hdr.offsetHeight;
-    hdr.style.transition = 'none';
-    hdr.style.height = fullH + 'px';
-    hdr.classList.add('collapsing');
-    hdr.offsetHeight; // force reflow so transition applies on next frame
-    hdr.style.transition = HDR_TRANSITION;
-    hdr.style.height = '0';
-    hdr.style.paddingTop = '0px';
-    hdr.style.paddingBottom = '0px';
-    miniHdr.classList.add('visible');
-    // Pad the panel top so list content stays visible below the mini-header
-    panel.style.paddingTop = miniHdr.offsetHeight + 'px';
+  const panel = document.getElementById('panel');
+  if(!panel) return;
+  // The one-way collapse fires on scroll SETTLE only — never during a scroll —
+  // so we never write scrollTop while iOS momentum is running (which would
+  // fight or cancel the flick). Prefer the native scrollend event; fall back
+  // to a debounced timer where it isn't supported (older iOS).
+  let settleTimer = 0;
+  const scheduleSettle = ()=>{ clearTimeout(settleTimer); settleTimer = setTimeout(onHeroSettle, 130); };
+  panel.addEventListener('scroll', scheduleSettle, {passive:true});
+  if('onscrollend' in window){
+    panel.addEventListener('scrollend', ()=>{ clearTimeout(settleTimer); onHeroSettle(); });
   }
-
-  function expandHdr(){
-    if(!isHdrCollapsed) return;
-    isHdrCollapsed = false;
-    upAccum = 0;
-    hdrAnimUntil = performance.now() + DURATION + 80;
-    const hdr = getHdr(); if(!hdr) return;
-    // Measure natural height (with natural padding): set auto, read, then
-    // animate from the fully collapsed 0/0 state back up
-    hdr.style.transition = 'none';
-    hdr.style.height = 'auto';
-    hdr.style.paddingTop = '';
-    hdr.style.paddingBottom = '';
-    const fullH = hdr.offsetHeight;
-    const cs = getComputedStyle(hdr);
-    const padT = cs.paddingTop, padB = cs.paddingBottom;
-    hdr.style.height = '0';
-    hdr.style.paddingTop = '0px';
-    hdr.style.paddingBottom = '0px';
-    hdr.offsetHeight; // reflow
-    hdr.classList.remove('collapsing');
-    hdr.style.transition = HDR_TRANSITION;
-    hdr.style.height = fullH + 'px';
-    hdr.style.paddingTop = padT;
-    hdr.style.paddingBottom = padB;
-    miniHdr.classList.remove('visible');
-    panel.style.paddingTop = '0';
-    // After animation, remove inline styles so the header can reflow naturally
-    setTimeout(() => {
-      if(!isHdrCollapsed){
-        hdr.style.height = ''; hdr.style.transition = '';
-        hdr.style.paddingTop = ''; hdr.style.paddingBottom = '';
-      }
-    }, DURATION + 20);
-  }
-
-  panel.addEventListener('scroll', function(){
-    // Always track position first — early-returning before updating lastY
-    // leaves a stale value that swallows the first delta back on this tab.
-    // Clamp iOS rubber-band overscroll: the bounce reports out-of-range
-    // scrollTops whose snap-back reads as a large fake swipe and flips the
-    // collapse state mid-bounce on fast repeated scrolling.
-    const y = Math.min(Math.max(this.scrollTop, 0), Math.max(this.scrollHeight - this.clientHeight, 0));
-    const delta = y - lastY;
-    lastY = y;
-    // Programmatic wipe+restore in flight (setPanelHTML): sync position
-    // only — these events are not user scrolling and their deltas must
-    // never flip the collapse state.
-    if(performance.now() < panelScrollGuardUntil) return;
-    // Collapse/expand transition in flight: the geometry-clamp scroll events
-    // it emits must sync position only, never flip the state back (see above).
-    if(performance.now() < hdrAnimUntil) return;
-    if(currentTab !== 'tasks') return;
-    // Rooms/room-detail/history use the compact static header — no collapse.
-    if(tasksSubView !== 'tasks') return;
-    // Permanent-compact mode has no big header to collapse or expand.
-    if(alwaysCompactHdr()) return;
-    if(delta > 0){
-      // Scrolling down — reset upward accumulator and collapse when past threshold
-      upAccum = 0;
-      if(y > 60 && !isHdrCollapsed) collapseHdr();
-    } else if(delta < 0){
-      // Scrolling up — only expand after 60px of intentional upward movement
-      upAccum += -delta;
-      if(upAccum >= 60 && isHdrCollapsed) expandHdr();
-    }
-  }, {passive:true});
 }
 initScrollCollapse();
-lucide.createIcons(); // render mini-hdr icons
+lucide.createIcons(); // render bottom-nav icons
