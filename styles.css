@@ -330,20 +330,29 @@ button,a,[class$="-tile"],[class$="-row"]{touch-action:manipulation}
 .ni.active .ni-ic{background:var(--sky-soft)}
 
 /* ── tasks sub-view toggle row ───────────────────────────────── */
-/* Sticky within #panel: once the percentage card scrolls past, this row pins
-   to the top of the scroller. Opaque bg so list cards don't bleed through;
-   z-index above card bodies (.tc-inner z:1), below #bnav (z:50). */
+/* Zero-space marker placed just above the sticky row; an IntersectionObserver
+   watches it to toggle the paint-only .pinned class when the row pins. */
+.tvr-sentinel{height:1px;margin-bottom:-1px}
+/* Sticky within #panel: the percentage card (ordinary content above) scrolls
+   past and this row pins to the top of the scroller. Opaque bg so list cards
+   don't bleed through; z-index above card bodies (.tc-inner z:1), below
+   #bnav (z:50). Nothing here changes when it pins except paint (see .pinned). */
 .tasks-view-row{
   display:flex;align-items:center;justify-content:space-between;padding:16px 14px 4px;gap:8px;
   position:sticky;top:0;z-index:20;background:var(--bg);
 }
-/* Tasks-list only: when the card is locked away, the row is the topmost thing
-   under the notch, so it takes the safe-area inset as top padding and a soft
-   edge. Other sub-views pin below the compact #hdr and never get this. */
-.tasks-view-row.pinned-hero{
-  padding-top:calc(env(safe-area-inset-top) + 12px);
-  box-shadow:0 6px 14px rgba(0,0,0,.06);
+/* Tasks list only: the row is the topmost element under the notch, so it pins
+   below the safe-area inset (constant offset — set once, never toggled, so no
+   reflow). Its ::before paints the notch strip; it's hidden until pinned. */
+.tasks-view-row.tvr-hero{top:env(safe-area-inset-top)}
+.tasks-view-row.tvr-hero::before{
+  content:"";position:absolute;left:0;right:0;bottom:100%;height:100px;
+  background:var(--bg);opacity:0;pointer-events:none;
 }
+/* Pin state is PAINT-ONLY: box-shadow on the row, opacity on the notch fill.
+   Neither affects layout, so the pin moment cannot jump. */
+.tasks-view-row.pinned{box-shadow:0 6px 14px rgba(0,0,0,.06)}
+.tasks-view-row.tvr-hero.pinned::before{opacity:1}
 .tasks-view-chips{display:flex;gap:3px;background:var(--card);border:1px solid var(--line);border-radius:var(--r-pill);padding:4px}
 .tv-chip{
   min-height:44px;padding:0 12px;border-radius:var(--r-pill);

@@ -461,8 +461,13 @@ function renderTasks(){
 function _tabsRowHTML(activeTab){
   // Order: Tasks · Calendar · Rooms. Segments are string-keyed (tasksSubView),
   // never a persisted index, so this order is presentation only.
+  // On the Tasks list this row is the topmost element under the notch, so it
+  // carries the safe-area offset (.tvr-hero). The zero-space sentinel just
+  // above it lets an IntersectionObserver toggle a paint-only .pinned class
+  // (shadow + notch fill) — no scroll handler, no layout change on pin.
   const t = activeTab==='tasks', r = activeTab==='rooms', c = activeTab==='calendar';
-  return `<div class="tasks-view-row">
+  return `<div class="tvr-sentinel" aria-hidden="true"></div>
+  <div class="tasks-view-row${t?' tvr-hero':''}">
     <div class="tasks-view-chips">
       <button class="tv-chip${t?' sel':''}" id="view-tasks" aria-label="Tasks"><i data-lucide="list-checks"></i><span class="tv-chip-lbl">Tasks</span></button>
       <button class="tv-chip${c?' sel':''}" id="view-calendar" aria-label="Calendar"><i data-lucide="calendar-days"></i><span class="tv-chip-lbl">Calendar</span></button>
@@ -474,6 +479,26 @@ function _tabsRowHTML(activeTab){
     </div>
   </div>`;
 }
+// Toggles the paint-only .pinned class on the sticky toggle row via an
+// IntersectionObserver on the sentinel above it. IO runs off the scroll path
+// and .pinned changes only box-shadow (row) and opacity (::before notch fill)
+// — never layout — so the pin moment cannot reflow or jump. Re-bound each
+// render because setPanelHTML rebuilds the sentinel and row.
+let _stickyRowObserver = null;
+function _bindStickyRow(){
+  if(_stickyRowObserver){ _stickyRowObserver.disconnect(); _stickyRowObserver = null; }
+  const panel = document.getElementById('panel');
+  const sentinel = panel && panel.querySelector('.tvr-sentinel');
+  const row = panel && panel.querySelector('.tasks-view-row');
+  if(!panel || !sentinel || !row) return;
+  // Align detection with where the row actually sticks: its resolved `top`
+  // (the safe-area inset on the Tasks list, 0 elsewhere) — not a magic number.
+  const topPx = parseFloat(getComputedStyle(row).top) || 0;
+  _stickyRowObserver = new IntersectionObserver(entries => {
+    row.classList.toggle('pinned', !entries[0].isIntersecting);
+  }, {root: panel, rootMargin: `-${topPx}px 0px 0px 0px`, threshold: 0});
+  _stickyRowObserver.observe(sentinel);
+}
 function _bindTabListeners(){
   const a=document.getElementById('hdr-add'); if(a) a.onclick=openAddTaskSheet;
   // Tapping the already-active Tasks segment scrolls the list back to the top,
@@ -481,7 +506,7 @@ function _bindTabListeners(){
   // tap-to-top can't reach an inner scroller). See scrollPanelToTop.
   const t=document.getElementById('view-tasks'); if(t) t.onclick=()=>{
     if(tasksSubView==='tasks'){ scrollPanelToTop(); return; }
-    tasksSubView='tasks'; currentRoomDetail=null; heroLocked=false; renderTasks();
+    tasksSubView='tasks'; currentRoomDetail=null; renderTasks();
     document.getElementById('panel').scrollTop = 0;
   };
   const r=document.getElementById('view-rooms'); if(r) r.onclick=()=>{ tasksSubView='rooms'; currentRoomDetail=null; renderTasks(); document.getElementById('panel').scrollTop = 0; };
@@ -495,6 +520,7 @@ function _bindTabListeners(){
     // preserves scroll and its guard swallows this programmatic jump).
     document.getElementById('panel').scrollTop = 0;
   };
+  _bindStickyRow();
 }
 function _heroCardHTML(){
   const prog = weekProgress();
@@ -573,22 +599,6 @@ function _renderTasksPanel(){
   lucide.createIcons();
   _bindTabListeners();
   _bindTaskCards();
-  // Re-apply the one-way collapse across data re-renders (task done, partner
-  // sync). setPanelHTML captured scrollTop while the card was hidden, so the
-  // fresh (visible) card must be re-hidden synchronously to keep that scroll
-  // position valid — but if the shorter list has no runway left, just unlock.
-  if(heroLocked){
-    const panel = document.getElementById('panel');
-    const card  = document.getElementById('scroll-hero');
-    const row   = panel.querySelector('.tasks-view-row');
-    const maxScroll = panel.scrollHeight - panel.clientHeight;
-    if(maxScroll <= 0 || panel.scrollTop <= 0){
-      heroLocked = false;
-    } else if(card && row){
-      card.style.display = 'none';
-      row.classList.add('pinned-hero');
-    }
-  }
   const bulk = document.getElementById('overdue-bulk');
   if(bulk) bulk.onclick = ()=>{
     const n = S.tasks.filter(x=>x.dueDate<todayStr()).length;
@@ -4422,57 +4432,21 @@ let tasksSubView = 'tasks'; // 'tasks' | 'rooms' | 'roomDetail' | 'history' | 'c
 // current week whenever the Calendar chip is tapped; paged by its prev/next.
 let calWeekStart = getWeekStart();
 let mealSubView = 'recipes'; // 'recipes' | 'grocery'
-// Tasks-list one-way collapse: once the percentage card (#scroll-hero) has
-// scrolled fully out of view it is hidden and stays hidden — no re-expand on
-// scroll up — until the panel is clamped back to the very top.
-let heroLocked = false;
 const RENDERERS = {tasks:renderTasks, history:renderHistory, dates:renderDates, meals:renderMeals, settings:renderSettings};
 
-// Smooth-scroll the Tasks list to the top (respects reduced-motion). This is
-// the recovery affordance for the collapsed card: bound to the active Tasks
-// bottom-nav tab and the active Tasks segment. iOS status-bar tap-to-top does
-// not reach an inner overflow scroller, so this is the only reliable path back.
+// Scroll the Tasks list to the top (respects reduced-motion). Bound to the
+// active Tasks bottom-nav tab and the active Tasks segment — the fast path
+// back to the percentage card once it has scrolled away. This is the only
+// place a scroll position is ever set programmatically, and only in direct
+// response to a user tap; the scroll-away/return itself writes nothing.
 function scrollPanelToTop(){
   const panel = document.getElementById('panel');
   if(!panel) return;
   const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
   panel.scrollTo({top:0, behavior: reduce ? 'auto' : 'smooth'});
-  if(reduce) onHeroSettle(); // instant scroll may not fire scrollend
-}
-
-// Runs on scroll settle only (never mid-scroll), so we never write scrollTop
-// during iOS momentum. Locks the card away once fully passed; restores it only
-// when the clamped position is back at the top.
-function onHeroSettle(){
-  const panel = document.getElementById('panel');
-  if(!panel) return;
-  if(performance.now() < panelScrollGuardUntil) return; // programmatic restore in flight
-  if(currentTab !== 'tasks' || tasksSubView !== 'tasks') return;
-  const card = document.getElementById('scroll-hero');
-  const row  = panel.querySelector('.tasks-view-row');
-  if(!card || !row) return;
-  const max = Math.max(panel.scrollHeight - panel.clientHeight, 0);
-  const y = Math.min(Math.max(panel.scrollTop, 0), max); // clamp iOS rubber-band
-  if(!heroLocked){
-    const h = card.offsetHeight;
-    if(h > 0 && y >= h - 1){
-      heroLocked = true;
-      const before = row.offsetHeight;
-      card.style.display = 'none';
-      row.classList.add('pinned-hero');
-      const padDelta = row.offsetHeight - before; // safe-area padding added on pin
-      panel.scrollTop = y - h + padDelta;          // net-zero visual shift
-    }
-  } else if(y <= 0){
-    heroLocked = false;
-    card.style.display = '';
-    row.classList.remove('pinned-hero');
-    panel.scrollTop = 0;
-  }
 }
 
 function switchTab(tab){
-  heroLocked = false;
   currentTab = tab;
   currentRoomDetail = null;
   tasksSubView = 'tasks';
@@ -4671,19 +4645,4 @@ document.querySelectorAll('.ni').forEach(btn =>
   })
 );
 
-function initScrollCollapse(){
-  const panel = document.getElementById('panel');
-  if(!panel) return;
-  // The one-way collapse fires on scroll SETTLE only — never during a scroll —
-  // so we never write scrollTop while iOS momentum is running (which would
-  // fight or cancel the flick). Prefer the native scrollend event; fall back
-  // to a debounced timer where it isn't supported (older iOS).
-  let settleTimer = 0;
-  const scheduleSettle = ()=>{ clearTimeout(settleTimer); settleTimer = setTimeout(onHeroSettle, 130); };
-  panel.addEventListener('scroll', scheduleSettle, {passive:true});
-  if('onscrollend' in window){
-    panel.addEventListener('scrollend', ()=>{ clearTimeout(settleTimer); onHeroSettle(); });
-  }
-}
-initScrollCollapse();
 lucide.createIcons(); // render bottom-nav icons
