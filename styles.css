@@ -33,8 +33,8 @@
     radial-gradient(300px 190px at 85% -30%, rgba(94,225,192,.13), transparent 70%),
     radial-gradient(280px 170px at 8% -20%, rgba(76,195,240,.16), transparent 70%),
     linear-gradient(180deg,#131A28 0%, var(--bg) 100%);
-  --hdr-glass:rgba(16,19,28,.88);
-  --shell:#090B11;
+  --hdr-glass:#00FF00; /* DEBUG lime */
+  --shell:#FF00FF; /* DEBUG magenta */
   /* type */
   --font:-apple-system,BlinkMacSystemFont,'SF Pro Text','Segoe UI',Roboto,'Helvetica Neue',sans-serif;
   --disp:var(--font);
@@ -62,8 +62,8 @@
     radial-gradient(300px 190px at 85% -30%, rgba(255,190,140,.35), transparent 70%),
     radial-gradient(280px 170px at 8% -12%, rgba(120,200,245,.4), transparent 70%),
     linear-gradient(180deg,#E2EEF9 0%, var(--bg) 100%);
-  --hdr-glass:rgba(238,243,249,.92);
-  --shell:#C9D6E2;
+  --hdr-glass:#00FF00; /* DEBUG lime */
+  --shell:#FF00FF; /* DEBUG magenta */
   --sh-sm:0 3px 12px rgba(43,90,130,.08);
   --sh-md:0 10px 28px rgba(43,90,130,.12);
   --sh-lg:0 24px 60px rgba(33,80,120,.2);
@@ -1087,8 +1087,8 @@ button,a,[class$="-tile"],[class$="-row"]{touch-action:manipulation}
     radial-gradient(300px 190px at 85% -30%, rgba(180,225,190,.4), transparent 70%),
     radial-gradient(280px 170px at 8% -12%, rgba(120,210,175,.32), transparent 70%),
     linear-gradient(180deg,#E3F0EA 0%, var(--bg) 100%);
-  --hdr-glass:rgba(238,243,249,.92);
-  --shell:#C9D6E2;
+  --hdr-glass:#00FF00; /* DEBUG lime */
+  --shell:#FF00FF; /* DEBUG magenta */
   --sh-sm:0 3px 12px rgba(43,90,130,.08);
   --sh-md:0 10px 28px rgba(43,90,130,.12);
   --sh-lg:0 24px 60px rgba(33,80,120,.2);
@@ -1115,8 +1115,8 @@ button,a,[class$="-tile"],[class$="-row"]{touch-action:manipulation}
     radial-gradient(300px 190px at 85% -30%, rgba(70,150,115,.28), transparent 70%),
     radial-gradient(280px 170px at 8% -12%, rgba(50,125,95,.24), transparent 70%),
     linear-gradient(180deg,#18211D 0%, var(--bg) 100%);
-  --hdr-glass:rgba(20,26,23,.92);
-  --shell:#0B0F0D;
+  --hdr-glass:#00FF00; /* DEBUG lime */
+  --shell:#FF00FF; /* DEBUG magenta */
   --sh-sm:0 3px 12px rgba(0,0,0,.35);
   --sh-md:0 10px 28px rgba(0,0,0,.45);
   --sh-lg:0 24px 60px rgba(0,0,0,.55);
