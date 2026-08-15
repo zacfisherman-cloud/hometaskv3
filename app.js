@@ -155,12 +155,6 @@ function deepMerge(defaults, source){
   return out;
 }
 
-// Applies `mutate` to the local state immediately (so the UI updates without
-// waiting on a round trip), then re-applies that same mutation inside a
-// Firestore transaction against a FRESH read of the server document. Two
-// near-simultaneous edits from different devices each replay their own
-// change on top of the other's, instead of one full-document .set() blindly
-// overwriting whatever the other device just wrote.
 // Replace the panel's content while preserving scroll position and, when
 // possible, the focused input (value, caret and focus). A raw innerHTML
 // rebuild resets all three, which is what made actions mid-scroll or
@@ -205,16 +199,137 @@ function stableStr(v){
   return '{' + Object.keys(v).sort().map(k => JSON.stringify(k) + ':' + stableStr(v[k])).join(',') + '}';
 }
 
+// Applies `mutate` to the local state immediately (so the UI updates without
+// waiting on a round trip), then re-applies that same mutation inside a
+// Firestore transaction against a FRESH read of the server document. Two
+// near-simultaneous edits from different devices each replay their own
+// change on top of the other's, instead of one full-document .set() blindly
+// overwriting whatever the other device just wrote.
+//
+// runTransaction needs a live round trip: offline it does NOT queue, it
+// rejects. The old version swallowed that rejection into console.error, so
+// an edit made with no signal was applied to S and localStorage and then
+// never sent — and the next server snapshot replaced S wholesale, wiping it
+// off the phone that made it with no error and no prompt.
+//
+// So every mutation now stays queued until the server confirms it: retried
+// with backoff (and immediately on reconnect / app foreground), and replayed
+// on top of any snapshot that lands first, so a remote edit and an unsent
+// local edit merge instead of one silently erasing the other.
+let syncReady = false;              // anonymous auth done + snapshot listener attached
+let pendingChanges = [];            // [{id, fn, at, sentToken}] — applied locally, unconfirmed
+let flushInFlight = false;
+let flushRetryTimer = null;
+let flushRetryDelay = 2000;
+const FLUSH_MAX_RETRY_DELAY = 30000;
+
 function commitChange(mutate){
-  const fallbackBase = JSON.parse(JSON.stringify(S)); // pre-mutation snapshot; only used if no remote doc exists yet
   mutate(S);
   saveLocal();
+  pendingChanges.push({id: uid(), fn: mutate, at: Date.now(), sentToken: null});
+  renderSyncPill();
+  flushPendingChanges();
+}
+
+// A mutation that throws must not take the whole batch (or the snapshot
+// handler) down with it, and must not wedge the queue into a forever-retry
+// loop that blocks every later change behind it.
+function applyChange(c, target){
+  try{ c.fn(target); }
+  catch(err){ console.error('Skipping a change that failed to apply:', err); }
+}
+
+function flushPendingChanges(){
+  clearTimeout(flushRetryTimer);
+  if(flushInFlight || !pendingChanges.length || !syncReady) return;
+  flushInFlight = true;
+  const batch = pendingChanges.slice();
+  // Stamped on the document so the snapshot carrying this batch can be
+  // recognised as ours. The commit ack and the listener update race each
+  // other; without the token, a snapshot that arrives first would have the
+  // still-queued mutations replayed on top of a doc that already contains
+  // them (a second copy of a completedLog entry, say).
+  const token = uid();
+  batch.forEach(c => c.sentToken = token);
   db.runTransaction(async tx => {
     const snap = await tx.get(HOUSEHOLD);
-    const fresh = snap.exists ? deepMerge(defaultState(), snap.data()) : fallbackBase;
-    mutate(fresh);
-    tx.set(HOUSEHOLD, fresh);
-  }).catch(err => console.error('Sync failed:', err));
+    if(snap.exists){
+      const fresh = deepMerge(defaultState(), snap.data());
+      batch.forEach(c => applyChange(c, fresh));
+      fresh.lastWriteToken = token;
+      tx.set(HOUSEHOLD, fresh);
+    } else {
+      // No server document yet (first-ever launch): local state already
+      // contains every queued mutation, so write it as-is rather than
+      // replaying them on top of themselves.
+      const fresh = JSON.parse(JSON.stringify(S));
+      fresh.lastWriteToken = token;
+      tx.set(HOUSEHOLD, fresh);
+    }
+  }).then(() => {
+    flushInFlight = false;
+    flushRetryDelay = 2000;
+    dropConfirmedChanges(token);
+    if(pendingChanges.length) flushPendingChanges();
+  }).catch(err => {
+    flushInFlight = false;
+    console.error('Sync failed — change stays queued, retrying:', err);
+    renderSyncPill();
+    flushRetryTimer = setTimeout(flushPendingChanges, flushRetryDelay);
+    flushRetryDelay = Math.min(flushRetryDelay * 2, FLUSH_MAX_RETRY_DELAY);
+  });
+}
+
+// Idempotent: called both by the commit ack and by the snapshot that carries
+// the matching token, whichever arrives first.
+function dropConfirmedChanges(token){
+  if(!token) return;
+  const before = pendingChanges.length;
+  pendingChanges = pendingChanges.filter(c => c.sentToken !== token);
+  if(pendingChanges.length !== before) renderSyncPill();
+}
+
+function retryPendingChanges(){
+  flushRetryDelay = 2000;
+  flushPendingChanges();
+}
+window.addEventListener('online', retryPendingChanges);
+// iOS fires 'online' unreliably in a standalone PWA — re-foregrounding the
+// app is the more dependable signal that connectivity may be back.
+document.addEventListener('visibilitychange', ()=>{
+  if(document.visibilityState === 'visible') retryPendingChanges();
+});
+
+// A pill that appears only once a change has been stuck for a few seconds,
+// so a normal online save (which clears in well under a second) never
+// flashes it. Queued changes live in memory only — if the app is killed
+// while offline they stay on this phone but never reach the other one, so
+// the user needs to be able to see that something is still in flight.
+const SYNC_PILL_DELAY = 3000;
+let syncPillTimer = null;
+function renderSyncPill(){
+  clearTimeout(syncPillTimer);
+  const app = document.getElementById('app');
+  if(!app) return;
+  let el = document.getElementById('sync-pill');
+  const hide = ()=> el && el.classList.remove('show');
+  if(!pendingChanges.length){ hide(); return; }
+  const age = Date.now() - pendingChanges[0].at;
+  if(age < SYNC_PILL_DELAY){
+    hide();
+    syncPillTimer = setTimeout(renderSyncPill, SYNC_PILL_DELAY - age);
+    return;
+  }
+  if(!el){
+    el = document.createElement('div');
+    el.id = 'sync-pill';
+    el.innerHTML = '<span class="sync-pill-dot"></span><span class="sync-pill-msg"></span>';
+    app.appendChild(el);
+  }
+  const n = pendingChanges.length;
+  el.querySelector('.sync-pill-msg').textContent =
+    n === 1 ? '1 change waiting to sync' : `${n} changes waiting to sync`;
+  el.classList.add('show');
 }
 
 // Which shared name slot ('name1'/'name2') *this device* belongs to. This is
@@ -311,13 +426,16 @@ function ringHTML(pct, size=150, sw=3){
 /* ════════════════════════════════════════ TASKS TAB */
 function updateMiniHdr(){
   const isRooms = tasksSubView==='rooms'||tasksSubView==='roomDetail';
-  document.getElementById('mh-tasks-btn')?.classList.toggle('active', !isRooms);
+  const isCal   = tasksSubView==='calendar';
+  document.getElementById('mh-tasks-btn')?.classList.toggle('active', !isRooms && !isCal);
   document.getElementById('mh-rooms-btn')?.classList.toggle('active', isRooms);
+  document.getElementById('mh-calendar-btn')?.classList.toggle('active', isCal);
 }
 
 function renderTasks(){
   const inRooms = tasksSubView==='rooms'||tasksSubView==='roomDetail';
   const inHist  = tasksSubView==='history';
+  const inCal   = tasksSubView==='calendar';
   const prog = weekProgress();
   if(alwaysCompactHdr()){
     // Permanent mini state: no big header at all, the glass bar is always on
@@ -327,13 +445,15 @@ function renderTasks(){
     const miniHdr = document.getElementById('mini-hdr');
     miniHdr.classList.add('visible');
     document.getElementById('panel').style.paddingTop = miniHdr.offsetHeight + 'px';
-  } else if(inRooms || inHist){
-    // Rooms and Completed-history get the compact, static header: the weekly
-    // ring is Tasks-view context, and the collapsing behavior has nowhere to
-    // go on a short grid — it caused a visible layout glitch. A one-line
-    // count keeps the context.
+  } else if(inRooms || inHist || inCal){
+    // Rooms, Completed-history and Calendar get the compact, static header: the
+    // weekly ring is Tasks-view context, and the collapsing behavior has
+    // nowhere to go on these views — it caused a visible layout glitch. A
+    // one-line count keeps the context.
     const sub = inHist
       ? `<b>${(S.completedLog||[]).length}</b> completed all-time`
+      : inCal
+      ? `Week of ${weekLabel(calWeekStart)}`
       : `<b>${prog.done} of ${prog.total}</b> done this week`;
     document.getElementById('hdr').innerHTML = `
       <div class="tasks-hdr compact">
@@ -377,6 +497,7 @@ function renderTasks(){
   }
   lucide.createIcons();
   if(inHist)                                      _renderHistoryPanel();
+  else if(inCal)                                  _renderCalendarPanel();
   else if(tasksSubView==='rooms')                 _renderRoomsPanel();
   else if(tasksSubView==='roomDetail'&&currentRoomDetail) _renderRoomDetailPanel(currentRoomDetail);
   else                                            _renderTasksPanel();
@@ -408,11 +529,12 @@ function _tabsRowHTML(activeTab){
   // Permanent-compact mode: the mini bar already provides tabs, history and
   // add — an in-panel copy would just duplicate it (the double-toggle bug).
   if(alwaysCompactHdr()) return '';
-  const t = activeTab==='tasks', r = activeTab==='rooms';
+  const t = activeTab==='tasks', r = activeTab==='rooms', c = activeTab==='calendar';
   return `<div class="tasks-view-row">
     <div class="tasks-view-chips">
-      <button class="tv-chip${t?' sel':''}" id="view-tasks"><i data-lucide="list-checks"></i>Tasks</button>
-      <button class="tv-chip${r?' sel':''}" id="view-rooms"><i data-lucide="layout-grid"></i>Rooms</button>
+      <button class="tv-chip${t?' sel':''}" id="view-tasks"><i data-lucide="list-checks"></i><span class="tv-chip-lbl">Tasks</span></button>
+      <button class="tv-chip${r?' sel':''}" id="view-rooms"><i data-lucide="layout-grid"></i><span class="tv-chip-lbl">Rooms</span></button>
+      <button class="tv-chip${c?' sel':''}" id="view-calendar"><i data-lucide="calendar-days"></i><span class="tv-chip-lbl">Calendar</span></button>
     </div>
     <div class="tvr-actions">
       <button class="tab-hist-btn" id="hdr-hist" aria-label="Completed history"><i data-lucide="history"></i></button>
@@ -424,6 +546,10 @@ function _bindTabListeners(){
   const a=document.getElementById('hdr-add'); if(a) a.onclick=openAddTaskSheet;
   const t=document.getElementById('view-tasks'); if(t) t.onclick=()=>{ tasksSubView='tasks'; currentRoomDetail=null; renderTasks(); };
   const r=document.getElementById('view-rooms'); if(r) r.onclick=()=>{ tasksSubView='rooms'; currentRoomDetail=null; renderTasks(); };
+  const c=document.getElementById('view-calendar'); if(c) c.onclick=()=>{
+    tasksSubView='calendar'; currentRoomDetail=null; calWeekStart=getWeekStart(); renderTasks();
+    document.getElementById('panel').scrollTop = 0;
+  };
   const h=document.getElementById('hdr-hist'); if(h) h.onclick=()=>{
     tasksSubView='history'; currentRoomDetail=null; renderTasks();
     // A sub-view change is real navigation — start at the top (setPanelHTML
@@ -1500,55 +1626,96 @@ function _statsDatesHTML(){
 }
 
 /* ════════════════════════════════════════ CALENDAR TAB */
-function renderCalendar(){
-  document.getElementById('hdr').innerHTML = `
-    <div class="flat-hdr">
-      <div><div class="flat-hdr-title">Calendar</div><div class="flat-hdr-sub">${weekLabel(getWeekStart())}</div></div>
-      <div class="flat-hdr-icon"><i data-lucide="calendar-days"></i></div>
-    </div>`;
-
+// Week-by-week calendar, shown as the third Tasks sub-view (Tasks | Rooms |
+// Calendar). Each day lists chores scheduled that day, chores completed that
+// day (from the log), and date nights — the upcoming plan (dates.nextPlan.when)
+// and past visits (dates.visited[].visitedAt). Paged a week at a time via
+// calWeekStart, which the Calendar chip resets to the current week.
+function _renderCalendarPanel(){
+  const ws = calWeekStart;                                   // Monday of shown week
+  const days = Array.from({length:7}, (_,i)=>addDays(ws, i));
+  const weekEnd = days[6];
   const t = todayStr();
-  const horizon = addDays(t, 13); // 2 weeks ahead
-  const relevant = S.tasks.filter(x => x.dueDate >= addDays(t,-3) && x.dueDate <= horizon)
-    .sort((a,b) => a.dueDate.localeCompare(b.dueDate));
-
-  const byDate = {};
-  relevant.forEach(x => { (byDate[x.dueDate] = byDate[x.dueDate]||[]).push(x); });
-
   const diffColors = {Easy:'var(--green)', Medium:'var(--gold)', Hard:'var(--red)'};
 
-  let html = `<div style="padding:14px 16px 0">
-    <div class="gcal-notice">
-      <i data-lucide="calendar-days"></i>
-      <p>Tasks appear below. Tap <b style="color:var(--sky-deep)">Add to Google Calendar</b> on any task card to add it directly to your calendar.</p>
+  const scheduledBy = {}, completedBy = {}, nightsBy = {};
+  S.tasks.forEach(x => {
+    if(x.dueDate >= ws && x.dueDate <= weekEnd) (scheduledBy[x.dueDate] = scheduledBy[x.dueDate]||[]).push(x);
+  });
+  (S.completedLog||[]).forEach(l => {
+    if(l.completedAt >= ws && l.completedAt <= weekEnd) (completedBy[l.completedAt] = completedBy[l.completedAt]||[]).push(l);
+  });
+  const plan = S.dates && S.dates.nextPlan;
+  if(plan && plan.when){
+    const d = plan.when.slice(0,10);
+    if(d >= ws && d <= weekEnd) (nightsBy[d] = nightsBy[d]||[]).push({name:plan.name, upcoming:true});
+  }
+  ((S.dates && S.dates.visited) || []).forEach(v => {
+    if(!v.visitedAt) return;
+    const d = toLocalYMD(new Date(v.visitedAt));
+    if(d >= ws && d <= weekEnd) (nightsBy[d] = nightsBy[d]||[]).push({name:v.name, upcoming:false});
+  });
+
+  const onThisWeek = ws === getWeekStart();
+  let html = _tabsRowHTML('calendar');
+  html += `<div class="cal-weeknav">
+    <button class="cal-nav-btn" id="cal-prev" aria-label="Previous week"><i data-lucide="chevron-left"></i></button>
+    <div class="cal-weeknav-mid">
+      <div class="cal-weeknav-range">${weekLabel(ws)}</div>
+      ${onThisWeek
+        ? '<div class="cal-weeknav-sub">This week</div>'
+        : '<button class="cal-today-jump" id="cal-today">Jump to this week</button>'}
     </div>
+    <button class="cal-nav-btn" id="cal-next" aria-label="Next week"><i data-lucide="chevron-right"></i></button>
   </div>`;
 
-  const allDates = Object.keys(byDate).sort();
-  if(!allDates.length){
-    html += `<div class="empty-state"><i data-lucide="calendar-check"></i><p>No tasks in the next 2 weeks</p></div>`;
-  }
-
-  allDates.forEach(date => {
+  days.forEach(date => {
     const isToday = date === t;
-    const tasks = byDate[date];
-    html += `<div class="cal-day-card" ${isToday?'style="border:2px solid var(--sky);box-shadow:0 0 0 3px var(--sky-soft)"':''}>
+    const sched = scheduledBy[date] || [];
+    const done  = completedBy[date] || [];
+    const nights = nightsBy[date] || [];
+    const d = new Date(date+'T00:00:00');
+    html += `<div class="cal-day-card${isToday?' cal-today':''}">
       <div class="cal-day-lbl">
         ${isToday?'<div class="cal-today-dot"></div>':''}
-        ${dayLabelFor(date)}${isToday?' · Today':''}
-        &nbsp;<span style="font-weight:600;color:var(--muted)">${shortDateStr(date)}</span>
-      </div>
-      ${tasks.map(x => `<div class="cal-task-row">
-        <div class="cal-dot" style="background:${diffColors[x.difficulty]||'var(--sky)'}"></div>
-        <span class="cal-task-name">${x.name}</span>
-        <span class="cal-badge-who">${x.assignee}</span>
-        <span class="cal-diff" style="background:${diffColors[x.difficulty]+'22'||'var(--sky-soft)'};color:${diffColors[x.difficulty]||'var(--sky-deep)'}">${x.difficulty}</span>
-      </div>`).join('')}
-    </div>`;
+        ${DAYS[d.getDay()]}${isToday?' · Today':''}
+        &nbsp;<span class="cal-day-date">${d.getDate()} ${MONTHS[d.getMonth()]}</span>
+      </div>`;
+    if(!sched.length && !done.length && !nights.length){
+      html += `<div class="cal-empty-day">Nothing scheduled</div>`;
+    } else {
+      nights.forEach(n => {
+        html += `<div class="cal-night-row">
+          <i data-lucide="heart" class="cal-night-ic"></i>
+          <span class="cal-task-name">${escapeHtml(n.name||'Date night')}</span>
+          <span class="cal-night-tag">${n.upcoming?'Planned':'Date night'}</span>
+        </div>`;
+      });
+      sched.forEach(x => {
+        html += `<div class="cal-task-row">
+          <div class="cal-dot" style="background:${diffColors[x.difficulty]||'var(--sky)'}"></div>
+          <span class="cal-task-name">${escapeHtml(x.name)}</span>
+          <span class="cal-badge-who">${escapeHtml(taskTurnText(x))}</span>
+        </div>`;
+      });
+      done.forEach(l => {
+        html += `<div class="cal-task-row cal-done">
+          <i data-lucide="check" class="cal-done-ic"></i>
+          <span class="cal-task-name">${escapeHtml(l.name)}</span>
+          <span class="cal-badge-who">${escapeHtml(l.completedBy||l.assignee||'')}</span>
+        </div>`;
+      });
+    }
+    html += `</div>`;
   });
 
   setPanelHTML(html);
   lucide.createIcons();
+  _bindTabListeners();
+  const go = ws2 => { calWeekStart = ws2; renderTasks(); document.getElementById('panel').scrollTop = 0; };
+  const prev = document.getElementById('cal-prev');   if(prev)  prev.onclick  = ()=>go(addDays(calWeekStart, -7));
+  const next = document.getElementById('cal-next');   if(next)  next.onclick  = ()=>go(addDays(calWeekStart,  7));
+  const today = document.getElementById('cal-today'); if(today) today.onclick = ()=>go(getWeekStart());
 }
 
 /* ════════════════════════════════════════ DATES TAB */
@@ -4294,10 +4461,13 @@ function openParseReviewSheet(recipe, via, backTo){
 /* ════════════════════════════════════════ TAB SWITCHING */
 let currentTab = 'tasks';
 let currentRoomDetail = null;
-let tasksSubView = 'tasks'; // 'tasks' | 'rooms' | 'roomDetail' | 'history'
+let tasksSubView = 'tasks'; // 'tasks' | 'rooms' | 'roomDetail' | 'history' | 'calendar'
+// Monday of the week the Calendar sub-view is currently showing. Reset to the
+// current week whenever the Calendar chip is tapped; paged by its prev/next.
+let calWeekStart = getWeekStart();
 let mealSubView = 'recipes'; // 'recipes' | 'grocery'
 let isHdrCollapsed = false;
-const RENDERERS = {tasks:renderTasks, history:renderHistory, calendar:renderCalendar, dates:renderDates, meals:renderMeals, settings:renderSettings};
+const RENDERERS = {tasks:renderTasks, history:renderHistory, dates:renderDates, meals:renderMeals, settings:renderSettings};
 
 function switchTab(tab){
   isHdrCollapsed = false;
@@ -4409,6 +4579,10 @@ let householdSyncStarted = false;
 function startHouseholdSync(){
   if(householdSyncStarted) return;
   householdSyncStarted = true;
+  // Anything queued before auth completed (edits made during a cold offline
+  // launch) can go out now.
+  syncReady = true;
+  flushPendingChanges();
   startRecipesSync();
   // Firebase syncs data silently — only transitions UI if setup was already complete this session
   HOUSEHOLD.onSnapshot(snap => {
@@ -4424,7 +4598,15 @@ function startHouseholdSync(){
     // re-renders below.
     let unchanged = false;
     if(snap.exists){
-      const incoming = deepMerge(defaultState(), snap.data());
+      const data = snap.data();
+      // Anything this snapshot already carries is confirmed — drop it from
+      // the queue before replaying, or it would be applied twice.
+      dropConfirmedChanges(data.lastWriteToken);
+      const incoming = deepMerge(defaultState(), data);
+      delete incoming.lastWriteToken; // bookkeeping only — never part of app state
+      // Re-apply edits that haven't reached the server yet, so an offline or
+      // failed change survives a remote update instead of being erased by it.
+      pendingChanges.forEach(c => applyChange(c, incoming));
       unchanged = stableStr(incoming) === stableStr(S);
       S = incoming;
       saveLocal();
@@ -4503,6 +4685,11 @@ function initScrollCollapse(){
   if(mhTasks) mhTasks.onclick = ()=>{ tasksSubView='tasks'; currentRoomDetail=null; renderTasks(); };
   const mhRooms = document.getElementById('mh-rooms-btn');
   if(mhRooms) mhRooms.onclick = ()=>{ tasksSubView='rooms'; currentRoomDetail=null; renderTasks(); };
+  const mhCal = document.getElementById('mh-calendar-btn');
+  if(mhCal) mhCal.onclick = ()=>{
+    tasksSubView='calendar'; currentRoomDetail=null; calWeekStart=getWeekStart(); renderTasks();
+    document.getElementById('panel').scrollTop = 0;
+  };
   const mhHist = document.getElementById('mh-hist-btn');
   if(mhHist) mhHist.onclick = ()=>{
     tasksSubView='history'; currentRoomDetail=null; renderTasks();

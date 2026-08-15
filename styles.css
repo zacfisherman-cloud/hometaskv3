@@ -72,7 +72,14 @@
 
 /* ── resets & native feel ────────────────────────────────────── */
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-font-smoothing:antialiased;-webkit-tap-highlight-color:transparent}
-html,body{height:100%;height:100dvh;background:var(--shell)}
+/* Lock the whole document to the viewport so nothing but #panel can scroll.
+   Without this, iOS Safari rubber-bands / drags the entire page on overscroll
+   ("swiping the app away") instead of scrolling the list inside the shell. */
+html,body{
+  height:100%;height:100dvh;background:var(--shell);
+  position:fixed;inset:0;width:100%;
+  overflow:hidden;overscroll-behavior:none;
+}
 body{font-family:var(--font);color:var(--ink);display:flex;justify-content:center;height:100%;height:100dvh}
 button{font-family:var(--font);cursor:pointer;border:none;background:none;color:inherit}
 input,textarea,select{font-family:var(--font);outline:none}
@@ -93,7 +100,11 @@ button,a,[class$="-tile"],[class$="-row"]{touch-action:manipulation}
   flex:1;overflow-y:auto;overflow-x:hidden;
   padding-bottom:calc(var(--bnav) + env(safe-area-inset-bottom) + 10px);
   transition:padding-top .32s cubic-bezier(.4,0,.2,1);
-  -webkit-overflow-scrolling:touch;overscroll-behavior-y:contain;
+  -webkit-overflow-scrolling:touch;overscroll-behavior:contain;
+  /* Reserve the vertical axis for panel scrolling so iOS can't reinterpret a
+     scroll as a horizontal edge-swipe (back/forward navigation). Task cards
+     drive their own horizontal swipe via JS, so pan-y here doesn't fight them. */
+  touch-action:pan-y;
 }
 #panel::-webkit-scrollbar{display:none}
 #root{overscroll-behavior:none}
@@ -367,15 +378,23 @@ button,a,[class$="-tile"],[class$="-row"]{touch-action:manipulation}
 .ni.active .ni-ic{background:var(--sky-soft)}
 
 /* ── tasks sub-view toggle row ───────────────────────────────── */
-.tasks-view-row{display:flex;align-items:center;justify-content:space-between;padding:16px 20px 4px;gap:8px}
-.tasks-view-chips{display:flex;gap:4px;background:var(--card);border:1px solid var(--line);border-radius:var(--r-pill);padding:4px}
+.tasks-view-row{display:flex;align-items:center;justify-content:space-between;padding:16px 14px 4px;gap:8px}
+.tasks-view-chips{display:flex;gap:3px;background:var(--card);border:1px solid var(--line);border-radius:var(--r-pill);padding:4px}
 .tv-chip{
-  height:36px;padding:0 16px;border-radius:var(--r-pill);
-  font-weight:600;font-size:13px;color:var(--muted);
-  display:flex;align-items:center;gap:6px;white-space:nowrap;
+  height:36px;padding:0 12px;border-radius:var(--r-pill);
+  font-weight:600;font-size:12.5px;color:var(--muted);
+  display:flex;align-items:center;gap:5px;white-space:nowrap;
 }
-.tv-chip svg{width:15px;height:15px}
+.tv-chip svg{width:15px;height:15px;flex:0 0 auto}
 .tv-chip.sel{background:var(--sky-soft);color:var(--sky-deep)}
+/* On most phone widths, three text chips + the action buttons overflow the
+   row — collapse the unselected chips to icons so the selected one keeps its
+   label and everything still fits. The largest phones (≥414px) show all three
+   labels. */
+@media (max-width:413px){
+  .tasks-view-chips:has(.tv-chip:nth-child(3)) .tv-chip:not(.sel){padding:0 10px}
+  .tasks-view-chips:has(.tv-chip:nth-child(3)) .tv-chip:not(.sel) .tv-chip-lbl{display:none}
+}
 .tab-add-btn{
   width:44px;height:44px;border-radius:50%;flex:0 0 44px;
   background:var(--acc-grad);color:var(--acc-ink);
@@ -392,6 +411,56 @@ button,a,[class$="-tile"],[class$="-row"]{touch-action:manipulation}
 }
 .tab-hist-btn:active{transform:scale(.94)}
 .tab-hist-btn svg{width:19px;height:19px}
+
+/* ── calendar (Tasks ▸ calendar sub-view) ────────────────────── */
+.cal-weeknav{
+  display:flex;align-items:center;gap:10px;
+  margin:12px 16px 4px;padding:8px 8px;
+  background:var(--card);border:1px solid var(--line);border-radius:var(--r-card);
+}
+.cal-nav-btn{
+  width:40px;height:40px;border-radius:12px;flex:0 0 40px;
+  background:var(--surface);border:1px solid var(--line);color:var(--ink-soft);
+  display:flex;align-items:center;justify-content:center;transition:transform .12s;
+}
+.cal-nav-btn:active{transform:scale(.92)}
+.cal-nav-btn svg{width:20px;height:20px}
+.cal-weeknav-mid{flex:1;min-width:0;text-align:center}
+.cal-weeknav-range{font-weight:700;font-size:15px;color:var(--ink)}
+.cal-weeknav-sub{font-size:11.5px;font-weight:600;color:var(--sky-deep);margin-top:1px}
+.cal-today-jump{
+  font-size:11.5px;font-weight:600;color:var(--sky-deep);margin-top:1px;
+  min-height:24px;padding:0 4px;
+}
+.cal-day-card{
+  margin:8px 16px 0;padding:12px 14px;
+  background:var(--card);border:1px solid var(--line);border-radius:var(--r-card);
+}
+.cal-day-card.cal-today{border-color:var(--sky);box-shadow:0 0 0 3px var(--sky-soft)}
+.cal-day-lbl{
+  display:flex;align-items:center;gap:6px;
+  font-weight:700;font-size:13.5px;color:var(--ink);margin-bottom:2px;
+}
+.cal-today-dot{width:7px;height:7px;border-radius:50%;background:var(--sky);flex:0 0 auto}
+.cal-day-date{font-weight:600;font-size:12.5px;color:var(--muted)}
+.cal-empty-day{font-size:12.5px;font-weight:450;color:var(--muted);padding:4px 0 2px}
+.cal-task-row{display:flex;align-items:center;gap:9px;padding:7px 0;border-top:1px solid var(--line)}
+.cal-task-row:first-of-type{border-top:none}
+.cal-dot{width:9px;height:9px;border-radius:50%;flex:0 0 auto}
+.cal-task-name{flex:1;min-width:0;font-size:13.5px;font-weight:550;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cal-badge-who{
+  font-size:11px;font-weight:600;color:var(--muted);flex:0 0 auto;
+  padding:2px 8px;border-radius:var(--r-pill);background:var(--sky-tint);
+}
+.cal-done .cal-task-name{color:var(--muted);text-decoration:line-through;text-decoration-color:var(--line-strong)}
+.cal-done-ic{width:15px;height:15px;color:var(--green);flex:0 0 auto}
+.cal-night-row{display:flex;align-items:center;gap:9px;padding:7px 0;border-top:1px solid var(--line)}
+.cal-night-row:first-of-type{border-top:none}
+.cal-night-ic{width:16px;height:16px;color:var(--luck);flex:0 0 auto}
+.cal-night-tag{
+  font-size:11px;font-weight:600;color:var(--luck);flex:0 0 auto;
+  padding:2px 8px;border-radius:var(--r-pill);background:var(--luck-soft);
+}
 
 /* ── completed history (Tasks ▸ history sub-view) ────────────── */
 .hist-entry{
@@ -436,6 +505,28 @@ button,a,[class$="-tile"],[class$="-row"]{touch-action:manipulation}
   font-weight:700;font-size:12.5px;transition:transform .12s;
 }
 .toast-act:active{transform:scale(.95)}
+
+/* ── unsynced-changes pill ───────────────────────────────────
+   Sits above the toast slot so both can be visible at once. */
+#sync-pill{
+  position:absolute;left:50%;transform:translate(-50%,12px);
+  bottom:calc(var(--bnav) + env(safe-area-inset-bottom) + 66px);
+  z-index:61;display:flex;align-items:center;gap:8px;max-width:calc(100% - 32px);
+  background:var(--card);border:1px solid var(--gold);border-radius:var(--r-pill);
+  box-shadow:var(--sh-md);padding:8px 14px;
+  opacity:0;pointer-events:none;
+  transition:opacity .22s ease, transform .28s cubic-bezier(.4,0,.2,1);
+}
+#sync-pill.show{opacity:1;transform:translate(-50%,0)}
+.sync-pill-dot{
+  width:8px;height:8px;border-radius:50%;flex:0 0 8px;background:var(--gold);
+  animation:syncPulse 1.6s ease-in-out infinite;
+}
+@keyframes syncPulse{0%,100%{opacity:1}50%{opacity:.3}}
+.sync-pill-msg{
+  font-size:12.5px;font-weight:600;color:var(--ink);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
 
 /* ── history / stats ─────────────────────────────────────────── */
 .hist-card{background:var(--card);border:1px solid var(--line);border-radius:var(--r-card);padding:17px 18px;margin:0 16px 12px}
