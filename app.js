@@ -3104,7 +3104,6 @@ const MEAL_PROXY_URL = 'https://meal-prep-proxy.zacfisherman.workers.dev';
 // carry their own protein tags, the picker becomes the union of these seeds
 // and every distinct tag across the cookbook (deduplicated by normalized key).
 const PROTEIN_SEEDS = ['Chicken thigh','Chicken breast','Beef mince','Pork shoulder','Salmon','White fish','Prawns','Tofu','Eggs'];
-const PROTEIN_CAP = 3;
 let mealStylePicking = false; // true while the style-cards view is open over an existing choice
 let mealResults = null;       // {loading, error, suggested:[]} — transient, per-device
 
@@ -3128,12 +3127,11 @@ function proteinOptions(){
     if(key && !seen.has(key)){ seen.set(key, r.protein.trim()); extras.push(r.protein.trim()); }
   });
   extras.sort((a,b) => a.localeCompare(b));
-  const orphans = [];
-  (S.mealPrep?.proteins || []).forEach(p => {
-    const key = normalizeProtein(p);
-    if(key && !seen.has(key)){ seen.set(key, p); orphans.push(p); }
-  });
-  return [...PROTEIN_SEEDS, ...extras, ...orphans];
+  // Previously also appended "orphans" — proteins stored in mealPrep.proteins
+  // that no seed or recipe used. That read is gone with the protein slicer;
+  // the remaining callers (recipe search, paste-parse hints) only need seeds
+  // plus proteins that actually appear on a saved recipe.
+  return [...PROTEIN_SEEDS, ...extras];
 }
 
 /* ── saved recipes: households/home/recipes subcollection ── */
@@ -3149,12 +3147,11 @@ function startRecipesSync(){
     if(currentTab === 'meals') renderMeals();
   }, err => console.error('Recipes sync error:', err));
 }
-function proteinOnlyMatches(mp){
-  const keys = mp.proteins.map(normalizeProtein);
-  return mealRecipes.filter(r => !keys.length || keys.includes(normalizeProtein(r.protein || '')));
-}
+// Protein slicing removed: the full cookbook is the starting point. The prep-
+// style filter below is the one filter that remains — a recipe tagged for
+// other styles still doesn't show under the current style.
 function savedMatches(mp){
-  return proteinOnlyMatches(mp).filter(r =>
+  return mealRecipes.filter(r =>
     !Array.isArray(r.styles) || !r.styles.length || r.styles.includes(mp.style)
   );
 }
@@ -3248,24 +3245,12 @@ function _recipesViewHTML(mp){
         </button>`).join('');
   }
   const style = MEAL_STYLES.find(s => s.id === mp.style) || MEAL_STYLES[0];
-  const count = mp.proteins.length;
-  const overCap = count > PROTEIN_CAP;
   return `
     <button class="style-current" id="mp-change-style">
       <div class="style-ic"><i data-lucide="${style.icon}"></i></div>
       <div class="n">${style.name}</div>
       <div class="chg">Change<i data-lucide="chevron-right" style="width:13px;height:13px"></i></div>
     </button>
-    <div class="seg-lbl" style="margin:20px 22px 10px;display:flex;justify-content:space-between">
-      <span>Proteins</span>
-      <span style="color:var(--sky-deep);letter-spacing:.02em;text-transform:none">${count} selected${overCap ? ` · AI uses first ${PROTEIN_CAP}` : ''}</span>
-    </div>
-    <div class="pk-row">
-      ${proteinOptions().map(p => {
-        const on = mp.proteins.includes(p);
-        return `<button class="pk-chip${on?' on':''}" data-protein="${escapeHtml(p)}">${escapeHtml(p)}</button>`;
-      }).join('')}
-    </div>
     <button class="btn-primary mp-cta" id="mp-find">Find recipes <i data-lucide="search"></i></button>
     ${_savedListHTML(mp)}
     ${_aiSectionHTML(mp)}`;
@@ -3313,10 +3298,6 @@ function _recipeCardHTML(r, kind, inWeek, ref, scale){
 // every protein-chip tap (slicer behavior) — no button press involved.
 function _savedListHTML(mp){
   const saved = savedMatches(mp);
-  // Recipes that match the protein filter but are tagged for a different
-  // prep style: previously just vanished with no explanation — you'd swear
-  // the app lost a recipe. Surface the count and a one-tap way to find them.
-  const hiddenByStyle = proteinOnlyMatches(mp).length - saved.length;
   const weekCount = (mp.activeRecipeIds || []).length;
   let html = `<div id="mp-results">
     <div class="weekbar" style="margin-top:6px">
@@ -3334,14 +3315,11 @@ function _savedListHTML(mp){
       No saved recipe matches this combo. What would you like to do?
       <div style="display:flex;gap:8px;margin-top:12px;width:100%">
         <button class="rc-btn" id="mp-paste-instead" style="flex:1">Find one &amp; paste it</button>
-        ${mp.proteins.length ? '<button class="rc-btn add" id="mp-ai-go" style="flex:1"><i data-lucide="sparkles"></i>&nbsp;AI suggestion</button>' : ''}
+        <button class="rc-btn add" id="mp-ai-go" style="flex:1"><i data-lucide="sparkles"></i>&nbsp;AI suggestion</button>
       </div>
     </div>`;
   }
-  if(hiddenByStyle > 0){
-    html += `<button class="rc-hidden-row" id="mp-show-hidden">${hiddenByStyle} more match${hiddenByStyle===1?'':'es'} your protein, tagged for a different prep style — tap to search them</button>`;
-  }
-  if(saved.length && !mealResults?.aiRequested && mp.proteins.length){
+  if(saved.length && !mealResults?.aiRequested){
     html += `<button class="rc-btn add" id="mp-more-ai" style="margin:12px 16px 0;width:calc(100% - 32px)"><i data-lucide="sparkles"></i>&nbsp;Get AI suggestions too</button>`;
   }
   return html + `</div>`;
@@ -3376,7 +3354,7 @@ async function fetchSuggestions(mp){
     const timeoutId = setTimeout(() => controller.abort(), 45000); // live 70b suggest runs measured up to ~24s
     const res = await fetch(MEAL_PROXY_URL + '/suggest', {
       method:'POST', headers:{'Content-Type':'application/json'}, signal:controller.signal,
-      body: JSON.stringify({styleName, proteins: mp.proteins.slice(0, PROTEIN_CAP), existingRecipeNames: mealRecipes.map(r => r.name)})
+      body: JSON.stringify({styleName, existingRecipeNames: mealRecipes.map(r => r.name)})
     });
     clearTimeout(timeoutId);
     const data = await res.json();
@@ -4057,16 +4035,6 @@ function _bindMealHandlers(mp){
   if(chg) chg.onclick = ()=>{ mealStylePicking = true; renderMeals(); };
   const cancelStyle = document.getElementById('mp-cancel-style');
   if(cancelStyle) cancelStyle.onclick = ()=>{ mealStylePicking = false; renderMeals(); };
-  document.querySelectorAll('[data-protein]').forEach(el => el.addEventListener('click', ()=>{
-    const p = el.dataset.protein;
-    mealResults = null;
-    commitChange(state => {
-      const arr = state.mealPrep.proteins;
-      const i = arr.indexOf(p);
-      if(i >= 0) arr.splice(i, 1); else arr.push(p);
-    });
-    renderMeals();
-  }));
   const find = document.getElementById('mp-find');
   if(find) find.onclick = ()=> openRecipeSearchSheet(true);
   const requestAI = ()=>{
@@ -4083,8 +4051,6 @@ function _bindMealHandlers(mp){
   if(retry) retry.onclick = requestAI;
   const pasteInstead = document.getElementById('mp-paste-instead');
   if(pasteInstead) pasteInstead.onclick = openAddRecipeSheet;
-  const showHidden = document.getElementById('mp-show-hidden');
-  if(showHidden) showHidden.onclick = ()=> openRecipeSearchSheet(false, mp.proteins[0] || '');
   document.querySelectorAll('[data-scale-dir]').forEach(el => el.addEventListener('click', e => {
     e.stopPropagation();
     const id = el.closest('[data-rc-scale]').dataset.rcScale;
