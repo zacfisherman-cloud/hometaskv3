@@ -1960,24 +1960,52 @@ function renderDates(){
   }));
 }
 
+// Street + suburb only: drop the Australian state and postcode so the address
+// fits one line. ("180 Flinders Ln, Melbourne VIC 3000" -> "180 Flinders Ln,
+// Melbourne".) normFsqPlace has already stripped a trailing ", Australia".
+const AU_STATE = /\b(VIC|NSW|QLD|WA|SA|TAS|NT|ACT)\b/i;
+function shortAddr(a){
+  if(!a) return '';
+  let parts = String(a).split(',').map(s => s.trim()).filter(Boolean);
+  // drop segments that are only a state and/or postcode
+  parts = parts.filter(s => !(AU_STATE.test(s) && /^\W*\w+\W*\d{0,4}$/.test(s)) && !/^\d{4}$/.test(s));
+  parts = parts.map(s => s
+    .replace(new RegExp('\\s+' + AU_STATE.source + '\\.?\\s*\\d{4}\\s*$', 'i'), '')
+    .replace(new RegExp('\\s+' + AU_STATE.source + '\\.?\\s*$', 'i'), '')
+    .replace(/\s+\d{4}\s*$/, '').trim()).filter(Boolean);
+  return parts.slice(0, 2).join(', ');
+}
+// Compact form of the quality signal, appended to the address line instead of
+// rendering the separate chip.
+function qualitySuffix(p){
+  if(p.rating != null) return `★ ${p.rating}`;
+  if(p.badge === 'top-rated')    return '★ Top rated';
+  if(p.badge === 'trending')     return '★ Trending';
+  if(p.badge === 'highly-rated') return '★ Highly rated';
+  return '';
+}
 function toVisitCard(p){
   const mapsQ = escapeHtml(`${p.name} ${p.address||''}`.trim());
-  return `<div class="date-card${p.picked?' picked-highlight':''}">
-    ${p.picked ? '<div class="picked-tag"><i data-lucide="star"></i>Next Date!</div>' : ''}
-    <div class="date-top">
-      <div class="date-icon pending-icon"><i data-lucide="${p.category ? dateSpotIcon(p.category) : 'utensils'}"></i></div>
+  const line = [shortAddr(p.address), qualitySuffix(p)].filter(Boolean).join(' · ');
+  // Row 1 for every card; the next-date card adds a full-width Plan it row.
+  // Each icon calls exactly the handler its labelled button called before.
+  return `<div class="date-card dc-card${p.picked?' picked-highlight':''}">
+    <div class="dc-row">
+      <div class="date-icon pending-icon dc-ic-tile"><i data-lucide="${p.category ? dateSpotIcon(p.category) : 'utensils'}"></i></div>
       <div class="date-info">
-        <div class="date-name">${escapeHtml(p.name)}</div>
-        ${p.address ? `<div class="date-addr-link" data-maps="${mapsQ}"><i data-lucide="map-pin"></i>${escapeHtml(p.address)}</div>` : ''}
-        ${qualityChipHTML(p, 'date-quality')}
+        <div class="dc-name-row">
+          <div class="date-name dc-name">${escapeHtml(p.name)}</div>
+          ${p.picked ? '<span class="dc-next">NEXT</span>' : ''}
+        </div>
+        ${line ? `<div class="dc-addr" data-maps="${mapsQ}">${escapeHtml(line)}</div>` : ''}
+      </div>
+      <div class="dc-acts">
+        <button class="dc-ic dc-ic-visit" data-visit-it="${p.id}" aria-label="Mark visited"><i data-lucide="star"></i></button>
+        <button class="dc-ic" data-gsearch="${mapsQ}" aria-label="Search on Google"><i data-lucide="map-pin"></i></button>
+        <button class="dc-ic dc-ic-del" data-del-place="${p.id}" aria-label="Remove"><i data-lucide="trash-2"></i></button>
       </div>
     </div>
-    <div class="date-actions">
-      ${p.picked ? `<button class="date-act plan-cta" data-plan-place="${p.id}"><i data-lucide="calendar-heart"></i>Plan it</button>` : ''}
-      <button class="date-act visited-act" data-visit-it="${p.id}"><i data-lucide="star"></i>Mark visited</button>
-      <button class="date-act" data-gsearch="${mapsQ}"><i data-lucide="search"></i>Google</button>
-      <button class="date-act del-act" data-del-place="${p.id}"><i data-lucide="trash-2"></i>Remove</button>
-    </div>
+    ${p.picked ? `<button class="dc-plan" data-plan-place="${p.id}"><i data-lucide="calendar-heart"></i>Plan it</button>` : ''}
   </div>`;
 }
 function visitedCard(p){

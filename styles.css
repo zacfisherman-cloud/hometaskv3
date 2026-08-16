@@ -688,6 +688,42 @@ button,a,[class$="-tile"],[class$="-row"]{touch-action:manipulation}
 .sec-title{font-weight:600;font-size:16px;color:var(--ink);letter-spacing:.01em}
 .sec-count{font-size:12px;font-weight:500;color:var(--muted)}
 .date-card{background:var(--card);border:1px solid var(--line);border-radius:var(--r-card);padding:15px 16px;margin:0 16px 10px}
+/* compact To Visit card: row 1 always, Plan it row only on the next date */
+.dc-card{padding:11px 12px 11px 14px}
+.dc-row{display:flex;align-items:center;gap:12px}
+.dc-ic-tile{width:38px;height:38px;flex:0 0 38px;border-radius:11px}
+.dc-ic-tile svg{width:18px;height:18px}
+.dc-name-row{display:flex;align-items:center;gap:6px;min-width:0}
+.dc-name{
+  font-size:16px;font-weight:500;line-height:1.25;
+  min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.dc-next{
+  flex:none;font-size:9.5px;font-weight:700;letter-spacing:.06em;
+  background:var(--luck-soft);color:var(--luck);border-radius:var(--r-pill);padding:2px 7px;
+}
+.dc-addr{
+  font-size:12px;font-weight:450;color:var(--muted);margin-top:2px;cursor:pointer;
+  min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.dc-acts{display:flex;align-items:center;gap:2px;flex:none}
+.dc-ic{
+  width:36px;height:36px;flex:0 0 36px;border-radius:50%;
+  display:flex;align-items:center;justify-content:center;
+  color:var(--muted);background:transparent;transition:transform .12s;
+}
+.dc-ic svg{width:18px;height:18px}
+.dc-ic:active{transform:scale(.9)}
+.dc-ic-visit{color:var(--green)}
+.dc-ic-del{color:var(--red)}
+.dc-plan{
+  width:100%;height:38px;margin-top:10px;border-radius:var(--r-pill);
+  background:var(--luck-soft);color:var(--luck);
+  display:flex;align-items:center;justify-content:center;gap:7px;
+  font-weight:600;font-size:14px;
+}
+.dc-plan svg{width:16px;height:16px}
+.dc-plan:active{background:var(--luck-soft);transform:scale(.99)}
 .date-card.picked-highlight{border-color:var(--luck);box-shadow:0 0 0 3px var(--luck-soft)}
 .picked-tag{display:inline-flex;align-items:center;gap:5px;background:var(--luck-soft);color:var(--luck);border-radius:var(--r-pill);padding:4px 11px;font-size:11px;font-weight:600;margin-bottom:10px}
 .picked-tag svg{width:12px;height:12px}
