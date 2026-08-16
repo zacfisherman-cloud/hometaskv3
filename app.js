@@ -2717,8 +2717,8 @@ function openPlanSheet(place){
     <div style="text-align:center;font-size:18px;font-weight:600;color:var(--ink);padding:2px 0 0">${escapeHtml(place.name)}</div>
     ${place.address ? `<div style="text-align:center;font-size:12.5px;font-weight:500;color:var(--muted);margin-top:-6px">${escapeHtml(place.address)}</div>` : ''}
     <div class="plan-when-row">
-      <div style="flex:1.4"><div class="seg-lbl">Date</div><input class="sheet-date-input" id="pl-date" type="date" value="${defDate}"></div>
-      <div style="flex:1"><div class="seg-lbl">Time</div><input class="sheet-date-input" id="pl-time" type="time" value="${defTime}"></div>
+      <div class="pl-when-field"><div class="seg-lbl">Date</div><input class="sheet-date-input" id="pl-date" type="date" value="${defDate}"></div>
+      <div class="pl-when-field"><div class="seg-lbl">Time</div><input class="sheet-date-input" id="pl-time" type="time" value="${defTime}"></div>
     </div>
     <div>
       <div class="seg-lbl">Getting there</div>

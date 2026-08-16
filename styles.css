@@ -676,7 +676,12 @@ button,a,[class$="-tile"],[class$="-row"]{touch-action:manipulation}
 .plan-act#plan-clear{color:var(--muted)}
 .date-act.plan-cta{border-color:var(--luck);color:var(--luck)}
 .date-act.plan-cta:active{background:var(--luck-soft)}
-.plan-when-row{display:flex;gap:10px}
+/* Date and time size to their own content and sit left-aligned, instead of
+   the two fields stretching to fill the sheet. The pickers, values, formats
+   and labels are untouched. */
+.plan-when-row{display:flex;gap:10px;justify-content:flex-start}
+.pl-when-field{flex:0 0 auto;min-width:0}
+.pl-when-field .sheet-date-input{width:auto;min-width:0;padding:0 12px}
 .pl-travel{
   margin-top:10px;padding:11px 13px;border-radius:var(--r-input);
   background:var(--sky-tint);border:1px solid var(--line);
