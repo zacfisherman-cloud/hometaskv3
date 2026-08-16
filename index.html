@@ -96,5 +96,64 @@
     <div id="mbox"></div>
   </div>
 </div>
+
+<!-- ══ DEBUG READOUT (temporary, diagnostic only — revert after) ══ -->
+<div id="dbg-readout"></div>
+<script>
+(function(){
+  var el = document.getElementById('dbg-readout');
+  el.style.cssText = 'position:fixed;left:6px;right:6px;'
+    + 'bottom:calc(78px + env(safe-area-inset-bottom) + 8px);'
+    + 'z-index:99999;background:rgba(0,0,0,.88);color:#0f0;'
+    + 'font:11px/1.35 ui-monospace,Menlo,monospace;padding:8px 10px;'
+    + 'border-radius:8px;white-space:pre;pointer-events:auto;'
+    + '-webkit-user-select:text;user-select:text;';
+  // Probe resolves env(safe-area-inset-bottom) to a number we can read.
+  var probe = document.createElement('div');
+  probe.style.cssText = 'position:fixed;left:-9999px;top:0;width:1px;height:env(safe-area-inset-bottom);';
+  document.body.appendChild(probe);
+  var probeTop = document.createElement('div');
+  probeTop.style.cssText = 'position:fixed;left:-9999px;top:0;width:1px;height:env(safe-area-inset-top);';
+  document.body.appendChild(probeTop);
+  function n(v){ return Math.round(v*100)/100; }
+  function rectBottom(id){
+    var e = document.getElementById(id);
+    if(!e) return 'n/a';
+    var r = e.getBoundingClientRect();
+    return n(r.bottom) + ' (h' + n(r.height) + ')';
+  }
+  function draw(){
+    var body = document.body.getBoundingClientRect();
+    var bnav = document.getElementById('bnav');
+    var bnavPad = bnav ? getComputedStyle(bnav).paddingBottom : 'n/a';
+    var bnavBottom = bnav ? bnav.getBoundingClientRect().bottom : null;
+    var vv = window.visualViewport;
+    var lines = [
+      'SAB probe   : ' + n(probe.getBoundingClientRect().height),
+      'SAT probe   : ' + n(probeTop.getBoundingClientRect().height),
+      'bnav padBot : ' + bnavPad,
+      'innerHeight : ' + window.innerHeight,
+      'screen.h    : ' + screen.height + '  avail ' + screen.availHeight,
+      'visualVP h  : ' + (vv ? n(vv.height) + ' off ' + n(vv.offsetTop) : 'n/a'),
+      'body        : ' + n(body.bottom) + ' (h' + n(body.height) + ')',
+      '#root  bot  : ' + rectBottom('root'),
+      '#app   bot  : ' + rectBottom('app'),
+      '#bnav  bot  : ' + rectBottom('bnav'),
+      'GAP inner-bnav: ' + (bnavBottom==null ? 'n/a' : n(window.innerHeight - bnavBottom)),
+      'GAP screen-bnav: ' + (bnavBottom==null ? 'n/a' : n(screen.height - bnavBottom)),
+      'standalone mm : ' + matchMedia('(display-mode: standalone)').matches,
+      'nav.standalone: ' + (('standalone' in navigator) ? navigator.standalone : 'undef'),
+      'dpr         : ' + window.devicePixelRatio
+    ];
+    el.textContent = lines.join('\n');
+  }
+  draw();
+  addEventListener('resize', draw);
+  addEventListener('orientationchange', function(){ setTimeout(draw, 300); });
+  if(window.visualViewport){ visualViewport.addEventListener('resize', draw); }
+  setInterval(draw, 1000);
+  el.addEventListener('click', function(){ el.style.display='none'; });
+})();
+</script>
 </body>
 </html>
