@@ -302,13 +302,11 @@ Rules: protein is the single main protein tag. qty is a plain number or null (co
 
 async function handleSuggest(env, body) {
   const styleName = str(body?.styleName, 60) || 'weeknight meal prep';
-  const proteins = Array.isArray(body?.proteins) ? body.proteins.slice(0, 3).map(p => str(p, 40)).filter(Boolean) : [];
-  if (!proteins.length) return jsonError(400, 'Pick at least one protein first');
   const avoid = Array.isArray(body?.existingRecipeNames) ? body.existingRecipeNames.slice(0, 30).map(n => str(n, 90)).filter(Boolean) : [];
 
   const system = 'You are an experienced recipe writer producing structured JSON for a meal-prep app. Respond with only a JSON object, no other text.';
   const user = `Suggest exactly 3 distinct dinner recipes for two people doing "${styleName}" style meal prep.
-HARD CONSTRAINT: every recipe's main protein MUST be one of: ${proteins.join(', ')} — no other proteins are allowed as the main protein. Use the tag exactly as written. ${proteins.length === 1 ? 'Since only one protein is given, all 3 recipes use it — vary the cuisine and technique instead.' : 'Cover different proteins from the list where possible.'}
+Vary the main protein across the three recipes, and vary the cuisine and technique too.
 Use plenty of varied vegetables — any vegetables you like.
 Do NOT suggest anything with these names (already in their cookbook): ${avoid.join('; ') || '(none)'}
 
@@ -339,15 +337,12 @@ slicing."`;
   if (!obj || !Array.isArray(obj.recipes)) {
     return jsonError(502, 'The suggestion model returned an unusable response — try again');
   }
-  const allowedKeys = proteins.map(normalizeProtein);
   const recipes = obj.recipes.slice(0, 3).map(r => {
-    // snap to the caller's tag when the model matched but re-cased/pluralized;
-    // recipes on a protein OUTSIDE the requested list are dropped below —
-    // caught live: asked for beef mince only, got lentil + chickpea recipes.
-    const i = allowedKeys.indexOf(normalizeProtein(str(r?.protein, 40)));
+    // No caller-supplied protein list any more, so nothing to snap to: the
+    // model's own tag is taken as-is and any non-empty string is accepted.
     return {
       name: str(r?.name, 90),
-      protein: i >= 0 ? proteins[i] : null,
+      protein: str(r?.protein, 40),
       serves: num(r?.serves, 1, 24) || 4,
       minutes: num(r?.minutes, 1, 24 * 60),
       summary: str(r?.summary, 200),
