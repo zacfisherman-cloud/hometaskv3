@@ -3719,16 +3719,24 @@ function _grocerySrcLabel(item){
     : `${names[0]} +${names.length - 1} more`;
   return item.edited ? base + ' · edited' : base;
 }
+// Single source of truth for stores — the edit sheet's tile grid, the
+// keyword map and the ingredient parser all read this one list, in this order.
+const GROCERY_STORES = ['Supermarket','Fruit and veg','Butcher','Seafood','Asian grocer','Deli','Bakery','Other'];
+
+// Row: [name + sub-line] [qty chip] [48px tick target]. The row itself opens
+// the edit sheet; the tick toggles bought and stops propagation so one tap
+// can't do both. The delete control now lives in the edit sheet.
 function groceryRowHTML(it){
-  return `<div class="g-item${it.checked ? ' done' : ''}" data-g-toggle="${it.id}">
-      <div class="g-check">${it.checked ? '✓' : ''}</div>
+  return `<div class="g-item${it.checked ? ' done' : ''}" data-g-edit="${it.id}">
       <div class="g-info">
         <div class="g-name">${escapeHtml(it.name)}</div>
         <div class="g-src">${escapeHtml(_grocerySrcLabel(it))}</div>
       </div>
       ${it.conflict && !it.checked && !it.edited ? '<span class="g-flag">units differ</span>' : ''}
-      <button class="g-qty" data-g-edit="${it.id}" aria-label="Edit item">${escapeHtml(prettyQty(it.qty, it.unit)) || '<i data-lucide="pencil"></i>'}</button>
-      <button class="g-del" data-g-del="${it.id}" aria-label="Remove">✕</button>
+      ${prettyQty(it.qty, it.unit) ? `<span class="g-qty">${escapeHtml(prettyQty(it.qty, it.unit))}</span>` : ''}
+      <button class="g-tick" data-g-toggle="${it.id}" aria-label="${it.checked ? 'Mark as not bought' : 'Mark as bought'}">
+        <span class="g-check">${it.checked ? '<i data-lucide="check"></i>' : ''}</span>
+      </button>
     </div>`;
 }
 // Keyword-based aisle grouping — matches how people actually shop far better
@@ -3803,19 +3811,18 @@ function _groceryViewHTML(mp){
   html += `<button class="g-add" id="g-add"><span class="plus">+</span>Add item</button>`;
   return html;
 }
-function _bindGroceryHandlers(mp){
-  document.querySelectorAll('[data-g-toggle]').forEach(el => el.addEventListener('click', e => {
-    if(e.target.closest('[data-g-del]') || e.target.closest('[data-g-edit]')) return;
-    const id = el.dataset.gToggle;
-    commitChange(state => {
-      const it = (state.mealPrep.grocery || []).find(g => g.id === id);
-      if(it){ it.checked = !it.checked; state.mealPrep.grocery.sort(grocerySort); }
-    });
-    renderMeals();
-  }));
-  document.querySelectorAll('[data-g-del]').forEach(el => el.addEventListener('click', e => {
-    e.stopPropagation();
-    const id = el.dataset.gDel;
+// Unchanged write path — only the control that calls it moved from the whole
+// row onto the tick target.
+function toggleGroceryChecked(id){
+  commitChange(state => {
+    const it = (state.mealPrep.grocery || []).find(g => g.id === id);
+    if(it){ it.checked = !it.checked; state.mealPrep.grocery.sort(grocerySort); }
+  });
+  renderMeals();
+}
+// Removal, lifted verbatim out of the old row "✕" handler so the edit sheet's
+// Delete reuses the same dismissed-tracking and undo behaviour.
+function deleteGroceryItem(id){
     let removed = null;
     commitChange(state => {
       const g = state.mealPrep.grocery || [];
@@ -3838,9 +3845,15 @@ function _bindGroceryHandlers(mp){
         renderMeals();
       });
     }
-  }));
-  document.querySelectorAll('[data-g-edit]').forEach(el => el.addEventListener('click', e => {
+}
+function _bindGroceryHandlers(mp){
+  // Tick toggles bought. stopPropagation: it sits inside the row, which is
+  // itself the tap target that opens the edit sheet.
+  document.querySelectorAll('[data-g-toggle]').forEach(el => el.addEventListener('click', e => {
     e.stopPropagation();
+    toggleGroceryChecked(el.dataset.gToggle);
+  }));
+  document.querySelectorAll('[data-g-edit]').forEach(el => el.addEventListener('click', ()=>{
     openGroceryItemSheet(el.dataset.gEdit);
   }));
   const add = document.getElementById('g-add') || document.getElementById('g-add-empty');
@@ -3881,10 +3894,26 @@ function openGroceryItemSheet(itemId){
       <div style="flex:1"><div class="seg-lbl" style="margin-bottom:6px">Unit <span style="text-transform:none;letter-spacing:0">(optional)</span></div>
         <input class="plain-input" id="gi-unit" placeholder="g, pack…" value="${escapeHtml(existing?.unit || '')}"></div>
     </div>
-    <button class="btn-primary" id="gi-save"><i data-lucide="check"></i>${existing ? 'Save changes' : 'Add to list'}</button>`,
+    <div>
+      <div class="seg-lbl" style="margin-bottom:6px">Store</div>
+      <div class="chip-grid" id="gi-stores" style="grid-template-columns:repeat(3,1fr);gap:7px">
+        ${GROCERY_STORES.map(s=>`<div class="chip chip-sm ${existing?.store===s?'sel':''}" data-store="${escapeHtml(s)}">${escapeHtml(s)}</div>`).join('')}
+      </div>
+    </div>
+    <button class="btn-primary" id="gi-save"><i data-lucide="check"></i>${existing ? 'Save changes' : 'Add to list'}</button>
+    ${existing ? `<button class="gi-del-btn" id="gi-del"><i data-lucide="trash-2"></i>Delete item</button>` : ''}`,
   ()=>{
     document.getElementById('sh-close').onclick = closeSheet;
     if(!existing) document.getElementById('gi-name').focus();
+    // Single-select store tiles. Nothing is preselected for items that have no
+    // store yet, and simply opening the sheet never writes a default.
+    let selStore = existing?.store || null;
+    document.querySelectorAll('#gi-stores [data-store]').forEach(el => el.addEventListener('click', ()=>{
+      selStore = el.dataset.store;
+      document.querySelectorAll('#gi-stores [data-store]').forEach(x => x.classList.toggle('sel', x===el));
+    }));
+    const del = document.getElementById('gi-del');
+    if(del) del.onclick = ()=>{ closeSheet(); deleteGroceryItem(itemId); };
     document.getElementById('gi-save').onclick = ()=>{
       const name = document.getElementById('gi-name').value.trim();
       if(!name){ document.getElementById('gi-name').focus(); return; }
@@ -3898,9 +3927,14 @@ function openGroceryItemSheet(itemId){
         if(existing){
           const it = state.mealPrep.grocery.find(g => g.id === itemId); if(!it) return;
           it.name = name; it.qty = qty; it.unit = qty == null ? null : unit;
+          // storeManual marks a store the user chose, so later automatic
+          // assignment (keyword map / AI) can never overwrite it.
+          if(selStore){ it.store = selStore; it.storeManual = true; }
           if(!it.manual) it.edited = true;
         } else {
-          state.mealPrep.grocery.push({id: uid(), gk: 'manual|' + uid(), manual: true, name, qty, unit: qty == null ? null : unit, sources: [], conflict: false, checked: false});
+          const item = {id: uid(), gk: 'manual|' + uid(), manual: true, name, qty, unit: qty == null ? null : unit, sources: [], conflict: false, checked: false};
+          if(selStore){ item.store = selStore; item.storeManual = true; }
+          state.mealPrep.grocery.push(item);
         }
         state.mealPrep.grocery.sort(grocerySort);
       });
