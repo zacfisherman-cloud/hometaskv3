@@ -778,7 +778,10 @@ function lastDoneText(taskId){
   for(let i = log.length - 1; i >= 0; i--){
     if(log[i].taskId === taskId){
       const d = Math.round((new Date(todayStr()+'T00:00:00') - new Date(log[i].completedAt+'T00:00:00')) / 86400000);
-      return d <= 0 ? 'done today' : d === 1 ? 'done yesterday' : `last done ${d}d ago`;
+      // Compact form for the single-line metadata row: "37d", not
+      // "last done 37d ago". Only the suffix format changed — the due-state
+      // string it sits beside is still built by dueDateDisplay, untouched.
+      return d <= 0 ? 'today' : `${d}d`;
     }
   }
   return null;
@@ -797,13 +800,13 @@ function taskCardHTML(task){
         <div class="tc-icon"><i data-lucide="${taskIcon(task)}"></i></div>
         <div class="tc-main">
           <div class="tc-title">${escapeHtml(task.name)}</div>
-          <div class="tc-badges">
-            <span class="badge badge-who"><i data-lucide="${task.assignee==='Both'?'users':'user'}"></i>${escapeHtml(taskTurnText(task))}</span>
-            <span class="badge badge-freq">${freqLabel(task)}</span>
-            ${task.isDeepClean ? '<span class="badge badge-dc"><i data-lucide="sparkles"></i>Deep clean</span>' : ''}
-          </div>
-          <div class="tc-due ${due.cls}">
-            <i data-lucide="calendar"></i>${due.text}${(()=>{const ld=lastDoneText(task.id); return ld?`<span class="tc-last">· ${ld}</span>`:'';})()}
+          <div class="tc-meta">
+            <div class="tc-meta-l">
+              <span class="badge badge-who"><i data-lucide="${task.assignee==='Both'?'users':'user'}"></i>${escapeHtml(taskTurnText(task))}</span>
+              <span class="badge badge-freq">${freqLabel(task)}</span>
+              ${task.isDeepClean ? '<span class="badge badge-dc"><i data-lucide="sparkles"></i>Deep</span>' : ''}
+            </div>
+            <div class="tc-meta-r tc-due ${due.cls}">${due.text}${(()=>{const ld=lastDoneText(task.id); return ld?`<span class="tc-last">· ${ld}</span>`:'';})()}</div>
           </div>
         </div>
       </div>

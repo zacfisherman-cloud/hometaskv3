@@ -250,7 +250,7 @@ button,a,[class$="-tile"],[class$="-row"]{touch-action:manipulation}
 /* Swipe gestures: pan-y hands vertical scrolling to the browser and leaves
    horizontal moves to the card's own touch handlers. */
 .task-card{touch-action:pan-y}
-.tc-inner{padding:14px 16px 13px;position:relative;z-index:1;background:var(--card)}
+.tc-inner{padding:11px 14px;position:relative;z-index:1;background:var(--card)}
 .tc-reveal{
   position:absolute;inset:0;display:flex;align-items:center;gap:8px;
   font-weight:700;font-size:13.5px;opacity:0;transition:opacity .12s ease;
@@ -269,19 +269,28 @@ button,a,[class$="-tile"],[class$="-row"]{touch-action:manipulation}
   border-radius:var(--r-card);color:var(--muted);font-size:12.5px;font-weight:600;
 }
 .swipe-hint svg{width:15px;height:15px}
-.tc-top{display:flex;align-items:flex-start;gap:12px}
+.tc-top{display:flex;align-items:center;gap:12px}
 .tc-icon{
-  width:42px;height:42px;border-radius:13px;flex:0 0 42px;
+  width:38px;height:38px;border-radius:11px;flex:0 0 38px;
   display:flex;align-items:center;justify-content:center;
   border:1px solid var(--line);
 }
-.tc-icon svg{width:20px;height:20px}
+.tc-icon svg{width:18px;height:18px}
 .easy .tc-icon{background:var(--green-soft);color:var(--green);border-color:transparent}
 .medium .tc-icon{background:var(--gold-soft);color:var(--gold);border-color:transparent}
 .hard .tc-icon{background:var(--red-soft);color:var(--red);border-color:transparent}
 .tc-main{flex:1;min-width:0}
-.tc-title{font-weight:550;font-size:16px;color:var(--ink);line-height:1.25}
-.tc-badges{display:flex;flex-wrap:wrap;gap:3px 12px;margin-top:5px}
+.tc-title{font-weight:500;font-size:16px;color:var(--ink);line-height:1.25}
+/* Single metadata row: identity/frequency on the left (truncates), due state
+   on the right (never shrinks, never wraps). */
+.tc-meta{display:flex;align-items:baseline;gap:10px;margin-top:3px}
+.tc-meta-l{
+  min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  font-size:12px;
+}
+.tc-meta-l .badge{margin-right:12px}
+.tc-meta-l .badge:last-child{margin-right:0}
+.tc-meta-r{margin-left:auto;flex:none;white-space:nowrap}
 .badge{display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:500;color:var(--muted)}
 .badge svg{width:12px;height:12px}
 .badge-who{color:var(--sky-deep);font-weight:550}
@@ -292,12 +301,14 @@ button,a,[class$="-tile"],[class$="-row"]{touch-action:manipulation}
 .badge-diff.hd{color:var(--red)}
 .badge-dc{color:var(--luck)}
 .badge-dc svg{color:var(--luck)}
-.tc-due{display:flex;align-items:center;gap:5px;margin-top:6px;font-size:12px;font-weight:500}
-.tc-due svg{width:13px;height:13px}
+/* Due state now sits inline in .tc-meta, so no own margin/flex — the
+   due-* colour rules below are unchanged. */
+.tc-due{font-size:12px;font-weight:500}
 .tc-due.due-today{color:var(--sky-deep);font-weight:600}
 .tc-due.due-soon{color:var(--muted)}
 .tc-due.due-overdue{color:var(--red);font-weight:600}
-.tc-last{color:var(--muted);font-weight:500}
+/* margin replaces the flex gap the due row used to get from display:flex */
+.tc-last{color:var(--muted);font-weight:500;margin-left:5px}
 .tc-actions{display:flex;gap:8px;margin-top:12px}
 .tc-act{
   flex:1;height:44px;border-radius:var(--r-pill);font-weight:600;font-size:13px;
