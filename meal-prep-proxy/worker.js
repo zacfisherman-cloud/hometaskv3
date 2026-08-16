@@ -110,7 +110,7 @@ const num = (v, lo, hi) => {
 };
 // Mirrors GROCERY_STORES in app.js. 'Other' is deliberately absent: it is a
 // manual-override value only, never something the model may assign.
-const STORES = ['Supermarket','Fruit and veg','Butcher','Seafood','Asian grocer','Deli','Bakery'];
+const STORES = ['Supermarket','Fruit and veg','Butcher','Seafood','Deli','Bakery'];
 function sanitizeIngredients(arr) {
   if (!Array.isArray(arr)) return [];
   return arr.slice(0, 40).map(i => {
@@ -269,7 +269,7 @@ ${text}
 
 Return JSON with exactly this shape:
 {"name":"...","protein":"...","serves":4,"minutes":30,"ingredients":[{"qty":500,"unit":"g","item":"chicken thigh","store":"Butcher"}],"steps":["..."]}
-Rules: protein is the single main protein tag. qty is a plain number or null (convert fractions like 1/2 to decimals). unit is one of g, kg, ml, l, cup, tbsp, tsp, clove, can, bunch, head, slice, piece, pack — or null if the ingredient has no unit. serves/minutes numbers or null if not stated. Keep ingredient items short: the item is the food name only, never quantities or units inside it. store is where an Australian household would buy that ingredient, exactly one of: Supermarket, Fruit and veg, Butcher, Seafood, Asian grocer, Deli, Bakery. Use Fruit and veg for fresh produce and herbs, Butcher for raw meat, Seafood for fish and shellfish, Asian grocer for east and south-east Asian pantry items and produce such as bok choy, tofu, oyster sauce and rice wine, Deli for cured meats, olives and deli cheeses, Bakery for fresh bread. Use Supermarket for anything else. Never use Other.`;
+Rules: protein is the single main protein tag. qty is a plain number or null (convert fractions like 1/2 to decimals). unit is one of g, kg, ml, l, cup, tbsp, tsp, clove, can, bunch, head, slice, piece, pack — or null if the ingredient has no unit. serves/minutes numbers or null if not stated. Keep ingredient items short: the item is the food name only, never quantities or units inside it. store is where an Australian household would buy that ingredient, exactly one of: Supermarket, Fruit and veg, Butcher, Seafood, Deli, Bakery. Use Fruit and veg for fresh produce and herbs, Butcher for raw meat, Seafood for fish and shellfish, Deli for cured meats, olives and deli cheeses, Bakery for fresh bread. Use Supermarket for anything else. Never use Other.`;
 
   const { obj, via } = await askForJSON(env, system, user, 1600);
   let recipe, source;

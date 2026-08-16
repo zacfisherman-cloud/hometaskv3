@@ -3181,10 +3181,16 @@ function backfillGroceryStores(){
   const items = mp.grocery || [];
   if(!items.length) return;                 // nothing to do yet; retry next render
   const needsVersion = (mp.storeMapV || 0) < STORE_MAP_V;
-  if(!needsVersion && !items.some(it => !it.store)){ _storeBackfillDone = true; return; }
+  const needsMerge = items.some(it => it.store === RETIRED_STORE);
+  if(!needsVersion && !needsMerge && !items.some(it => !it.store)){ _storeBackfillDone = true; return; }
   _storeBackfillDone = true;
   commitChange(state => {
     (state.mealPrep.grocery || []).forEach(it => {
+      // One-time "Asian grocer" -> Supermarket merge. Deliberately runs BEFORE
+      // the storeManual early-return: that value no longer exists, so a manual
+      // item still holding it would render under no heading at all. Its
+      // storeManual flag is left true, so nothing reassigns it later.
+      if(it.store === RETIRED_STORE) it.store = 'Supermarket';
       if(it.storeManual) return;            // manual override always wins
       if(!it.store || needsVersion) it.store = storeFor(it.name);
     });
@@ -3771,7 +3777,10 @@ function _grocerySrcLabel(item){
 }
 // Single source of truth for stores — the edit sheet's tile grid, the
 // keyword map and the ingredient parser all read this one list, in this order.
-const GROCERY_STORES = ['Supermarket','Fruit and veg','Butcher','Seafood','Asian grocer','Deli','Bakery','Other'];
+const GROCERY_STORES = ['Supermarket','Fruit and veg','Butcher','Seafood','Deli','Bakery','Other'];
+// Retired value, kept only so the one-time merge below can find and rewrite
+// any item still holding it.
+const RETIRED_STORE = 'Asian grocer';
 
 // Row: [name + sub-line] [qty chip] [48px tick target]. The row itself opens
 // the edit sheet; the tick toggles bought and stops propagation so one tap
@@ -3793,11 +3802,14 @@ function groceryRowHTML(it){
    Keyword map over an Australian household vocabulary. Order matters:
    the first match wins, so the specialist stores are tested before the
    broad produce list (e.g. "spring onion" is produce, but "lemongrass"
-   is Asian grocer). No network call — this runs at add time and as the
+   is a pantry good). No network call — this runs at add time and as the
    fallback whenever the recipe parser doesn't supply a store.
    Anything unmatched is Supermarket; "Other" is manual-override only. */
 const STORE_KEYWORDS = [
-  ['Asian grocer', /bok choy|pak choy|choy sum|gai lan|wombok|tofu|tempeh|rice wine|shaoxing|mirin|sake|oyster sauce|hoisin|gochujang|gochugaru|doubanjiang|miso|kimchi|fish sauce|soy sauce|kecap|sambal|sriracha|dashi|nori|wakame|udon|soba|ramen|rice noodle|vermicelli|wonton|dumpling wrapper|spring roll wrapper|water chestnut|bamboo shoot|lemongrass|galangal|kaffir|curry paste|coconut milk|coconut cream|palm sugar|sesame oil|szechuan|sichuan|five spice|panko|shiitake|enoki|edamame|rice paper/i],
+  // Formerly "Asian grocer", merged into Supermarket. The keywords are kept
+  // and kept FIRST so bok choy, soy sauce and friends still resolve here
+  // rather than falling through to the produce rule below.
+  ['Supermarket', /bok choy|pak choy|choy sum|gai lan|wombok|tofu|tempeh|rice wine|shaoxing|mirin|sake|oyster sauce|hoisin|gochujang|gochugaru|doubanjiang|miso|kimchi|fish sauce|soy sauce|kecap|sambal|sriracha|dashi|nori|wakame|udon|soba|ramen|rice noodle|vermicelli|wonton|dumpling wrapper|spring roll wrapper|water chestnut|bamboo shoot|lemongrass|galangal|kaffir|curry paste|coconut milk|coconut cream|palm sugar|sesame oil|szechuan|sichuan|five spice|panko|shiitake|enoki|edamame|rice paper/i],
   ['Butcher', /chicken thigh|chicken breast|chicken drumstick|chicken wing|whole chicken|chicken fillet|mince|beef|steak|lamb|pork|sausage|bacon|chorizo|ham hock|ribs|brisket|veal|turkey|duck|schnitzel|osso buco/i],
   ['Seafood', /salmon|prawn|shrimp|barramundi|snapper|tuna steak|squid|calamari|mussel|oyster(?! sauce)|scallop|crab|lobster|whiting|basa|fish fillet|marinara mix|white fish/i],
   ['Deli', /prosciutto|salami|pancetta|olive(?! oil)|fetta|feta|haloumi|halloumi|parmesan|pecorino|brie|camembert|antipasto|sundried tomato|hummus|pastrami|kalamata/i],
@@ -3807,8 +3819,8 @@ const STORE_KEYWORDS = [
 // Processed forms of a fresh ingredient are pantry goods, not produce:
 // "corn starch", "sweet chili sauce" and "lemon juice" must not be filed
 // under Fruit and veg just because they contain corn/chili/lemon. This vetoes
-// ONLY the produce rule, so earlier specialist matches (oyster sauce ->
-// Asian grocer, coconut milk -> Asian grocer) are untouched.
+// ONLY the produce rule, so earlier specialist matches (oyster sauce and
+// coconut milk -> Supermarket via the pantry keywords) are untouched.
 const PANTRY_FORM = /\bsauce\b|\bpaste\b|\bpowder\b|starch|\bjuice\b|dried|frozen|canned|tinned|vinegar|\boils?\b|\bstock\b|syrup|\bflour\b|\bjam\b|chutney|pickled|relish|\bpuree\b/i;
 function storeFor(name){
   const n = (name || '').toLowerCase();
