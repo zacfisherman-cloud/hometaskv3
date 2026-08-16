@@ -3143,17 +3143,27 @@ function recipeMatchesQuery(r, q){
 // One-time backfill: existing lines predate stores, so give each one a store
 // from the keyword map and write back once. A store the user set by hand
 // (storeManual) is never touched.
+// STORE_MAP_V is bumped when a keyword-map bug would have mis-filed existing
+// lines; that triggers exactly one corrective re-derive of auto-assigned
+// stores. Items the user set by hand (storeManual) are never touched, and the
+// re-derive runs once per version, so a parser-supplied store isn't clobbered
+// on every load.
+const STORE_MAP_V = 2;
 let _storeBackfillDone = false;
 function backfillGroceryStores(){
   if(_storeBackfillDone) return;
-  const items = (S.mealPrep && S.mealPrep.grocery) || [];
+  const mp = S.mealPrep || {};
+  const items = mp.grocery || [];
   if(!items.length) return;                 // nothing to do yet; retry next render
-  if(!items.some(it => !it.store)){ _storeBackfillDone = true; return; }
+  const needsVersion = (mp.storeMapV || 0) < STORE_MAP_V;
+  if(!needsVersion && !items.some(it => !it.store)){ _storeBackfillDone = true; return; }
   _storeBackfillDone = true;
   commitChange(state => {
     (state.mealPrep.grocery || []).forEach(it => {
-      if(!it.store && !it.storeManual) it.store = storeFor(it.name);
+      if(it.storeManual) return;            // manual override always wins
+      if(!it.store || needsVersion) it.store = storeFor(it.name);
     });
+    state.mealPrep.storeMapV = STORE_MAP_V;
   });
 }
 
@@ -3780,9 +3790,19 @@ const STORE_KEYWORDS = [
   ['Bakery', /sourdough|baguette|ciabatta|focaccia|\brolls?\b|\bbuns?\b|bagel|croissant|pita|naan|tortilla|wrap|bread|brioche|turkish/i],
   ['Fruit and veg', /onion|garlic|potato|tomato|lettuce|carrot|capsicum|broccoli|cauliflower|spinach|kale|cucumber|zucchini|eggplant|mushroom|apple|banana|lemon|lime|orange|avocado|berr|grape|mango|basil|coriander|parsley|mint|thyme|rosemary|ginger|chilli|chili|celery|cabbage|pumpkin|sweet potato|\bcorn\b|\bpeas?\b|bean sprout|leek|shallot|spring onion|asparagus|radish|beetroot|salad|rocket|snow pea|green bean|herb/i],
 ];
+// Processed forms of a fresh ingredient are pantry goods, not produce:
+// "corn starch", "sweet chili sauce" and "lemon juice" must not be filed
+// under Fruit and veg just because they contain corn/chili/lemon. This vetoes
+// ONLY the produce rule, so earlier specialist matches (oyster sauce ->
+// Asian grocer, coconut milk -> Asian grocer) are untouched.
+const PANTRY_FORM = /\bsauce\b|\bpaste\b|\bpowder\b|starch|\bjuice\b|dried|frozen|canned|tinned|vinegar|\boils?\b|\bstock\b|syrup|\bflour\b|\bjam\b|chutney|pickled|relish|\bpuree\b/i;
 function storeFor(name){
   const n = (name || '').toLowerCase();
-  for(const [store, re] of STORE_KEYWORDS) if(re.test(n)) return store;
+  for(const [store, re] of STORE_KEYWORDS){
+    if(!re.test(n)) continue;
+    if(store === 'Fruit and veg' && PANTRY_FORM.test(n)) return 'Supermarket';
+    return store;
+  }
   return 'Supermarket';
 }
 // A store is only trusted from the parser if it's one of ours.
