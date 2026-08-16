@@ -3223,15 +3223,26 @@ const DAY_ABBR = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
 function _recipeCardHTML(r, kind, inWeek, ref, scale){
   scale = scale || 1;
   const effServes = (r.serves && scale !== 1) ? fmtQty(r.serves * scale) : null;
-  const meta = [r.serves ? (effServes ? `Serves ${r.serves} → ${effServes}` : `Serves ${r.serves}`) : '', r.minutes ? `${r.minutes} min` : '', kind==='sugg' ? 'AI suggestion' : '']
+  // Meta is one muted line: serves · time · protein (the protein used to be a
+  // separate chip). 'AI suggestion' still marks unsaved suggestions.
+  const meta = [r.serves ? (effServes ? `Serves ${r.serves} → ${effServes}` : `Serves ${r.serves}`) : '', r.minutes ? `${r.minutes} min` : '', r.protein || '', kind==='sugg' ? 'AI suggestion' : '']
     .filter(Boolean).join(' · ');
   const day = inWeek ? ((S.mealPrep.recipeDay || {})[ref] || null) : null;
+  // The compact row IS the tap target (opens the recipe view). The in-week
+  // scale/day row deliberately sits OUTSIDE it, so its own controls can't
+  // bubble up and open the recipe.
   return `<div class="rc-card${inWeek?' active':''}">
-    <span class="rc-tag ${kind}">${kind==='saved' ? 'Saved' : 'Suggested'}</span>
-    <div class="rc-name-row"><div class="rc-ic"><i data-lucide="${proteinIcon(r.protein)}"></i></div><div class="rc-name">${escapeHtml(r.name)}</div></div>
-    ${meta ? `<div class="rc-meta">${escapeHtml(meta)}</div>` : ''}
-    ${r.summary ? `<div class="rc-sum">${escapeHtml(r.summary)}</div>` : ''}
-    <div class="rc-chips"><span class="rc-chip p">${escapeHtml(r.protein || '?')}</span></div>
+    <div class="rc-row" data-view-${kind}="${ref}">
+      <div class="rc-ic"><i data-lucide="${proteinIcon(r.protein)}"></i></div>
+      <div class="rc-main">
+        <div class="rc-name-row">
+          <div class="rc-name">${escapeHtml(r.name)}</div>
+          ${kind==='saved' ? '<i data-lucide="bookmark" class="rc-saved-ic"></i>' : ''}
+        </div>
+        ${meta ? `<div class="rc-meta">${escapeHtml(meta)}</div>` : ''}
+      </div>
+      <button class="rc-toggle${inWeek?' on':''}" data-week-${kind}="${ref}" aria-label="${inWeek ? 'Remove from this week' : 'Add to this week'}"><i data-lucide="${inWeek?'check':'plus'}"></i></button>
+    </div>
     ${inWeek ? `<div class="rc-week-row">
       <div class="rc-scale" data-rc-scale="${ref}">
         <button class="rc-scale-btn" data-scale-dir="-1" aria-label="Smaller batch">–</button>
@@ -3240,10 +3251,6 @@ function _recipeCardHTML(r, kind, inWeek, ref, scale){
       </div>
       <button class="rc-day" data-rc-day="${ref}">${day || '+ day'}</button>
     </div>` : ''}
-    <div class="rc-btns">
-      <button class="rc-btn" data-view-${kind}="${ref}">View</button>
-      <button class="rc-btn ${inWeek ? 'added' : 'add'}" data-week-${kind}="${ref}">${inWeek ? '✓ In this week' : '+ Add to week'}</button>
-    </div>
   </div>`;
 }
 // Saved matches render permanently under the picker and re-filter live on
@@ -3985,11 +3992,16 @@ function _bindMealHandlers(mp){
     const r = mealResults?.suggested[idx];
     if(r) openRecipeView(r, {suggIdx: idx});
   }));
-  document.querySelectorAll('[data-week-saved]').forEach(el => el.addEventListener('click', ()=>{
+  // stopPropagation: this button now sits inside the card row, which is itself
+  // the tap target that opens the recipe view. Without it one tap would both
+  // toggle the week set and open the recipe.
+  document.querySelectorAll('[data-week-saved]').forEach(el => el.addEventListener('click', e=>{
+    e.stopPropagation();
     toggleRecipeInWeek(el.dataset.weekSaved);
     renderMeals();
   }));
-  document.querySelectorAll('[data-week-sugg]').forEach(el => el.addEventListener('click', ()=>{
+  document.querySelectorAll('[data-week-sugg]').forEach(el => el.addEventListener('click', e=>{
+    e.stopPropagation();
     const idx = Number(el.dataset.weekSugg);
     const r = mealResults?.suggested[idx];
     if(!r) return;

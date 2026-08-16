@@ -1196,8 +1196,21 @@ body.meals .sheet-date-input{color-scheme:light}
 .wb-clear{font-size:12px;font-weight:600;color:var(--muted);min-height:32px;padding:0 8px}
 .rc-card{
   margin:9px 16px 0;background:var(--card);border:1px solid var(--line);border-radius:var(--r-card);
-  padding:13px 15px;position:relative;
+  position:relative;
 }
+/* Compact single row — mirrors the Tasks tab card: icon tile, stacked
+   title+meta, circular action. This row is the recipe's tap target. */
+.rc-row{display:flex;align-items:center;gap:12px;padding:11px 14px;cursor:pointer}
+.rc-main{flex:1;min-width:0}
+.rc-saved-ic{width:14px;height:14px;flex:none;color:var(--sky-deep)}
+.rc-toggle{
+  width:34px;height:34px;flex:none;border-radius:50%;
+  border:1px solid var(--sky-deep);color:var(--sky-deep);background:transparent;
+  display:flex;align-items:center;justify-content:center;transition:transform .12s;
+}
+.rc-toggle svg{width:17px;height:17px}
+.rc-toggle:active{transform:scale(.92)}
+.rc-toggle.on{background:var(--acc-grad);border-color:transparent;color:var(--acc-ink)}
 .rc-card.active{border-color:var(--sky-deep);box-shadow:0 0 0 3px var(--sky-soft)}
 .rc-tag{
   position:absolute;top:12px;right:13px;font-size:9px;font-weight:650;letter-spacing:.07em;
@@ -1205,21 +1218,27 @@ body.meals .sheet-date-input{color-scheme:light}
 }
 .rc-tag.saved{background:var(--sky-soft);color:var(--sky-deep)}
 .rc-tag.sugg{background:var(--luck-soft);color:var(--luck)}
-.rc-name-row{display:flex;align-items:center;gap:9px}
+.rc-name-row{display:flex;align-items:center;gap:6px;min-width:0}
 .rc-ic{
-  width:30px;height:30px;border-radius:10px;flex:0 0 30px;
+  width:38px;height:38px;border-radius:11px;flex:0 0 38px;
   display:flex;align-items:center;justify-content:center;
   background:var(--sky-tint);border:1px solid var(--line);color:var(--sky-deep);
 }
-.rc-ic svg{width:15px;height:15px}
-.rc-name{font-weight:550;font-size:15px;color:var(--ink);padding-right:64px;line-height:1.3}
-.rc-meta{font-size:11.5px;color:var(--muted);margin-top:3px}
+.rc-ic svg{width:18px;height:18px}
+.rc-name{
+  font-weight:500;font-size:16px;color:var(--ink);line-height:1.3;
+  min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.rc-meta{
+  font-size:12px;color:var(--muted);margin-top:2px;
+  min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
 .rc-sum{font-size:12.5px;color:var(--ink-soft);margin-top:6px;line-height:1.45}
 .rc-chips{display:flex;flex-wrap:wrap;gap:5px;margin-top:9px}
 .rc-chip{font-size:10.5px;font-weight:600;border-radius:var(--r-pill);padding:3px 10px;background:var(--sky-tint);border:1px solid var(--line);color:var(--ink-soft)}
 .rc-chip.p{background:var(--sky-soft);border-color:transparent;color:var(--sky-deep)}
 /* in-week row: batch-size stepper, day tag, cook-it — only on cards already in this week's set */
-.rc-week-row{display:flex;align-items:center;gap:8px;margin-top:10px;flex-wrap:wrap}
+.rc-week-row{display:flex;align-items:center;gap:8px;padding:0 14px 11px;flex-wrap:wrap}
 .rc-scale{display:flex;align-items:center;gap:2px;background:var(--sky-tint);border:1px solid var(--line);border-radius:var(--r-pill);padding:2px}
 .rc-scale-btn{width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;color:var(--sky-deep)}
 .rc-scale-btn:active{background:var(--sky-soft)}
