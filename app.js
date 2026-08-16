@@ -3298,19 +3298,27 @@ function _recipeCardHTML(r, kind, inWeek, ref, scale){
 // every protein-chip tap (slicer behavior) — no button press involved.
 function _savedListHTML(mp){
   const saved = savedMatches(mp);
-  const weekCount = (mp.activeRecipeIds || []).length;
-  let html = `<div id="mp-results">
-    <div class="weekbar" style="margin-top:6px">
-      <span><b>${weekCount} recipe${weekCount===1?'':'s'}</b> in this week's set</span>
-      ${weekCount ? '<button class="wb-clear" id="mp-clear">Clear</button>' : ''}
-    </div>
-    <div class="seg-lbl" style="margin:18px 22px 8px;display:flex;justify-content:space-between">
-      <span>From your saved recipes</span>
-      <span style="text-transform:none;letter-spacing:0;color:var(--sky-deep)">${saved.length} match${saved.length===1?'':'es'}</span>
+  // Two groups, selected first. A recipe in this week's set renders in group 1
+  // ONLY — the partition guarantees it can't also appear in group 2.
+  const active = mp.activeRecipeIds || [];
+  const inSet = saved.filter(r => active.includes(r.id));
+  const rest  = saved.filter(r => !active.includes(r.id));
+  let html = `<div id="mp-results">`;
+  if(inSet.length){
+    html += `<div class="seg-lbl" style="margin:18px 22px 8px;display:flex;justify-content:space-between;align-items:center">
+      <span>This week's set · ${inSet.length}</span>
+      <button class="wb-clear" id="mp-clear">Clear</button>
     </div>`;
-  if(saved.length){
-    saved.forEach(r => { html += _recipeCardHTML(r, 'saved', (mp.activeRecipeIds||[]).includes(r.id), r.id, (mp.recipeScale||{})[r.id]); });
-  } else if(!mealResults?.aiRequested){
+    inSet.forEach(r => { html += _recipeCardHTML(r, 'saved', true, r.id, (mp.recipeScale||{})[r.id]); });
+  }
+  html += `<div class="seg-lbl" style="margin:18px 22px 8px;display:flex;justify-content:space-between">
+      <span>From your saved recipes</span>
+      <span style="text-transform:none;letter-spacing:0;color:var(--sky-deep)">${rest.length} match${rest.length===1?'':'es'}</span>
+    </div>`;
+  if(rest.length){
+    rest.forEach(r => { html += _recipeCardHTML(r, 'saved', false, r.id, (mp.recipeScale||{})[r.id]); });
+  }
+  if(!saved.length && !mealResults?.aiRequested){
     html += `<div class="rc-none" style="border-style:solid">
       No saved recipe matches this combo. What would you like to do?
       <div style="display:flex;gap:8px;margin-top:12px;width:100%">
