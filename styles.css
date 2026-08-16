@@ -75,12 +75,17 @@
 /* Lock the whole document to the viewport so nothing but #panel can scroll.
    Without this, iOS Safari rubber-bands / drags the entire page on overscroll
    ("swiping the app away") instead of scrolling the list inside the shell. */
+/* Anchored to the PHYSICAL viewport by inset:0 alone — deliberately no
+   height here. An explicit height (100dvh) would win over bottom:0 and, in an
+   iOS standalone app with viewport-fit=cover, 100dvh resolves shorter than the
+   screen: the shell stopped above the home indicator and let --shell show
+   through as a band under the tab bar. inset:0 reaches the true bottom. */
 html,body{
-  height:100%;height:100dvh;background:var(--shell);
+  background:var(--shell);
   position:fixed;inset:0;width:100%;
   overflow:hidden;overscroll-behavior:none;
 }
-body{font-family:var(--font);color:var(--ink);display:flex;justify-content:center;height:100%;height:100dvh}
+body{font-family:var(--font);color:var(--ink);display:flex;justify-content:center}
 button{font-family:var(--font);cursor:pointer;border:none;background:none;color:inherit}
 input,textarea,select{font-family:var(--font);outline:none}
 a{color:inherit;text-decoration:none}
@@ -88,8 +93,10 @@ button,a,[class$="-tile"],[class$="-row"]{touch-action:manipulation}
 .ni,.tv-chip,.chip,.badge{user-select:none;-webkit-user-select:none}
 
 /* ── shell ───────────────────────────────────────────────────── */
+/* Fills the physically-anchored body (height:100%), NOT 100dvh — see above.
+   This is what makes #bnav's bottom:0 land on the real screen edge. */
 #root{
-  width:100%;max-width:430px;height:100%;height:100dvh;
+  width:100%;max-width:430px;height:100%;
   background:var(--bg);display:flex;flex-direction:column;
   position:relative;overflow:hidden;
   transition:background .3s ease;
