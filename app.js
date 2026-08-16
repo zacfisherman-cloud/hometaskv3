@@ -3140,7 +3140,25 @@ function recipeMatchesQuery(r, q){
   return tokens.every(t => hay.includes(t));
 }
 
+// One-time backfill: existing lines predate stores, so give each one a store
+// from the keyword map and write back once. A store the user set by hand
+// (storeManual) is never touched.
+let _storeBackfillDone = false;
+function backfillGroceryStores(){
+  if(_storeBackfillDone) return;
+  const items = (S.mealPrep && S.mealPrep.grocery) || [];
+  if(!items.length) return;                 // nothing to do yet; retry next render
+  if(!items.some(it => !it.store)){ _storeBackfillDone = true; return; }
+  _storeBackfillDone = true;
+  commitChange(state => {
+    (state.mealPrep.grocery || []).forEach(it => {
+      if(!it.store && !it.storeManual) it.store = storeFor(it.name);
+    });
+  });
+}
+
 function renderMeals(){
+  backfillGroceryStores();
   const mp = S.mealPrep || {style:null, proteins:[], activeRecipeIds:[], grocery:[]};
   const inGrocery = mealSubView === 'grocery';
   document.getElementById('hdr').innerHTML = `
@@ -3667,8 +3685,11 @@ function regenerateGrocery(state, extraById){
       const gk = key + '|' + pool;
       if(!keyUnits.has(key)) keyUnits.set(key, new Set());
       keyUnits.get(key).add(pool);
-      if(!desired.has(gk)) desired.set(gk, {name: ing.item.trim(), qty: qty == null ? null : 0, unit: qty == null ? null : unit, sources: []});
+      if(!desired.has(gk)) desired.set(gk, {name: ing.item.trim(), qty: qty == null ? null : 0, unit: qty == null ? null : unit, sources: [], store: normStore(ing.store)});
       const d = desired.get(gk);
+      // First recipe to supply a usable store for this line wins; null means
+      // the keyword map fills it in below.
+      if(!d.store) d.store = normStore(ing.store);
       if(d.qty != null && qty != null) d.qty += qty;
       if(!d.sources.includes(id)) d.sources.push(id);
     });
@@ -3694,11 +3715,16 @@ function regenerateGrocery(state, extraById){
       next.push({...prev, sources: d.sources, conflict: conflictKeys.has(gk.split('|')[0])});
       return;
     }
+    // A store the user set by hand is never reassigned; otherwise take the
+    // parser's store, falling back to the keyword map.
+    const keepManual = prev && prev.storeManual;
     next.push({
       id: prev ? prev.id : uid(), gk, manual: false,
       name: d.name, qty: d.qty, unit: d.unit, sources: d.sources,
       conflict: conflictKeys.has(gk.split('|')[0]),
       checked: prev ? !!prev.checked : false,
+      store: keepManual ? prev.store : (d.store || storeFor(d.name)),
+      ...(keepManual ? {storeManual: true} : {}),
     });
   });
   // checked lines whose recipe left the set survive — likely already bought
@@ -3739,8 +3765,31 @@ function groceryRowHTML(it){
       </button>
     </div>`;
 }
-// Keyword-based aisle grouping — matches how people actually shop far better
-// than one flat alphabetical run. "Other" catches anything unrecognized.
+/* ── store assignment ────────────────────────────────────────────────
+   Keyword map over an Australian household vocabulary. Order matters:
+   the first match wins, so the specialist stores are tested before the
+   broad produce list (e.g. "spring onion" is produce, but "lemongrass"
+   is Asian grocer). No network call — this runs at add time and as the
+   fallback whenever the recipe parser doesn't supply a store.
+   Anything unmatched is Supermarket; "Other" is manual-override only. */
+const STORE_KEYWORDS = [
+  ['Asian grocer', /bok choy|pak choy|choy sum|gai lan|wombok|tofu|tempeh|rice wine|shaoxing|mirin|sake|oyster sauce|hoisin|gochujang|gochugaru|doubanjiang|miso|kimchi|fish sauce|soy sauce|kecap|sambal|sriracha|dashi|nori|wakame|udon|soba|ramen|rice noodle|vermicelli|wonton|dumpling wrapper|spring roll wrapper|water chestnut|bamboo shoot|lemongrass|galangal|kaffir|curry paste|coconut milk|coconut cream|palm sugar|sesame oil|szechuan|sichuan|five spice|panko|shiitake|enoki|edamame|rice paper/i],
+  ['Butcher', /chicken thigh|chicken breast|chicken drumstick|chicken wing|whole chicken|chicken fillet|mince|beef|steak|lamb|pork|sausage|bacon|chorizo|ham hock|ribs|brisket|veal|turkey|duck|schnitzel|osso buco/i],
+  ['Seafood', /salmon|prawn|shrimp|barramundi|snapper|tuna steak|squid|calamari|mussel|oyster(?! sauce)|scallop|crab|lobster|whiting|basa|fish fillet|marinara mix|white fish/i],
+  ['Deli', /prosciutto|salami|pancetta|olive(?! oil)|fetta|feta|haloumi|halloumi|parmesan|pecorino|brie|camembert|antipasto|sundried tomato|hummus|pastrami|kalamata/i],
+  ['Bakery', /sourdough|baguette|ciabatta|focaccia|\brolls?\b|\bbuns?\b|bagel|croissant|pita|naan|tortilla|wrap|bread|brioche|turkish/i],
+  ['Fruit and veg', /onion|garlic|potato|tomato|lettuce|carrot|capsicum|broccoli|cauliflower|spinach|kale|cucumber|zucchini|eggplant|mushroom|apple|banana|lemon|lime|orange|avocado|berr|grape|mango|basil|coriander|parsley|mint|thyme|rosemary|ginger|chilli|chili|celery|cabbage|pumpkin|sweet potato|\bcorn\b|\bpeas?\b|bean sprout|leek|shallot|spring onion|asparagus|radish|beetroot|salad|rocket|snow pea|green bean|herb/i],
+];
+function storeFor(name){
+  const n = (name || '').toLowerCase();
+  for(const [store, re] of STORE_KEYWORDS) if(re.test(n)) return store;
+  return 'Supermarket';
+}
+// A store is only trusted from the parser if it's one of ours.
+function normStore(s){ return GROCERY_STORES.includes(s) ? s : null; }
+
+// Keyword-based aisle grouping — retained for groceryListText()'s shared
+// text export, which still reads by aisle.
 const AISLE_ORDER = ['Produce','Meat & Seafood','Dairy & Eggs','Bakery','Pantry','Frozen','Other'];
 const AISLE_MAP = [
   ['Produce', /onion|garlic|potato|tomato|lettuce|carrot|capsicum|pepper|broccoli|spinach|kale|cucumber|zucchini|mushroom|apple|banana|lemon|lime|avocado|herb|basil|coriander|cilantro|parsley|ginger|chilli|chili|celery|cabbage|pumpkin|sweet potato|corn/i],
@@ -3798,11 +3847,14 @@ function _groceryViewHTML(mp){
   }
   const unchecked = items.filter(i=>!i.checked);
   const checked = items.filter(i=>i.checked);
+  // Grouped by store, in GROCERY_STORES order. Headings render only when the
+  // group has at least one item. Bought items keep moving to their own
+  // "Gotten" section below — that is pre-existing behaviour, preserved.
   const groups = {};
-  unchecked.forEach(it => { const a = aisleFor(it.name); (groups[a]=groups[a]||[]).push(it); });
-  AISLE_ORDER.filter(a=>groups[a]?.length).forEach(aisle => {
-    html += `<div class="g-aisle-hdr">${aisle}</div>`;
-    groups[aisle].forEach(it => { html += groceryRowHTML(it); });
+  unchecked.forEach(it => { const s = it.store || storeFor(it.name); (groups[s]=groups[s]||[]).push(it); });
+  GROCERY_STORES.filter(s=>groups[s]?.length).forEach(store => {
+    html += `<div class="g-aisle-hdr">${escapeHtml(store)}</div>`;
+    groups[store].forEach(it => { html += groceryRowHTML(it); });
   });
   if(checked.length){
     html += `<div class="g-aisle-hdr">Gotten</div>`;
@@ -3933,7 +3985,10 @@ function openGroceryItemSheet(itemId){
           if(!it.manual) it.edited = true;
         } else {
           const item = {id: uid(), gk: 'manual|' + uid(), manual: true, name, qty, unit: qty == null ? null : unit, sources: [], conflict: false, checked: false};
+          // Explicit pick wins and is flagged manual; otherwise the keyword
+          // map assigns one at add time (no network call).
           if(selStore){ item.store = selStore; item.storeManual = true; }
+          else item.store = storeFor(name);
           state.mealPrep.grocery.push(item);
         }
         state.mealPrep.grocery.sort(grocerySort);
